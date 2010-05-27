@@ -10,6 +10,7 @@
 #import "ASIFormDataRequest.h"
 #import "ASINetworkQueue.h"
 #import "ASIDownloadCache.h"
+#import "ASINGNetworkQueue.h"
 
 @interface AppDelegate ()
 - (void)updateBandwidthUsageIndicator;
@@ -312,18 +313,18 @@
 
 - (IBAction)reloadTableData:(id)sender
 {
-	[[self tableQueue] cancelAllOperations];
+	[[self tableQueue] cancel];
 	[self setRowData:[NSMutableArray array]];
 	[tableView reloadData];
 
-	[self setTableQueue:[ASINetworkQueue queue]];
+	[self setTableQueue:[ASINGNetworkQueue queue]];
 	
 	ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/table-row-data.xml"]];
 	[request setDownloadCache:[ASIDownloadCache sharedCache]];
 	[request setDidFinishSelector:@selector(tableViewDataFetchFinished:)];
 	[request setDelegate:self];
-	[[self tableQueue] addOperation:request];
-	[[self tableQueue] go];
+	[[self tableQueue] addRequest:request];
+	[[self tableQueue] start];
 }
 
 - (void)tableViewDataFetchFailed:(ASIHTTPRequest *)request
@@ -347,7 +348,7 @@
 		[imageRequest setDidFailSelector:@selector(tableViewDataFetchFailed:)];
 		[imageRequest setDelegate:self];
 		[imageRequest setUserInfo:rowInfo];
-		[[self tableQueue] addOperation:imageRequest];
+		[[self tableQueue] addRequest:imageRequest];
 		[[self rowData] addObject:rowInfo];
 	}
 	[tableView reloadData];
@@ -369,6 +370,7 @@
 
 - (void)rowImageDownloadFinished:(ASIHTTPRequest *)request
 {
+	NSLog(@"ook");
 	NSImage *image = [[[NSImage alloc] initWithData:[request responseData]] autorelease];
 	[(NSMutableDictionary *)[request userInfo] setObject:image forKey:@"image"];
 	[tableView reloadData]; // Not efficient, but I hate table view programming :)

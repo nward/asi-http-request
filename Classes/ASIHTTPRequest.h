@@ -375,9 +375,6 @@ extern unsigned long const ASIWWANBandwidthThrottleAmount;
 	//   The stream will be closed + released either when another request comes to use the connection, or when the timer fires to tell the connection to expire
 	NSMutableDictionary *connectionInfo;
 	
-	// This timer checks up on the request every 0.25 seconds, and updates progress
-	NSTimer *statusTimer;
-	
 	// When set to YES, 301 and 302 automatic redirects will use the original method and and body, according to the HTTP 1.1 standard
 	// Default is NO (to follow the behaviour of most browsers)
 	BOOL shouldUseRFC2616RedirectBehaviour;

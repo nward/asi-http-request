@@ -95,8 +95,6 @@
 	
 	success = [request totalBytesRead] < 7900198;
 	GHAssertTrue(success, @"Downloaded the whole of the response even though we should have cancelled by now");
-	
-
 }
 
 
@@ -536,7 +534,7 @@
 	ASIHTTPRequest *request = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
 	[request startSynchronous];
 	
-	BOOL success = ([request contentLength] == 18443);
+	BOOL success = ([request contentLength] == 27872);
 	GHAssertTrue(success,@"Got wrong content length");
 }
 

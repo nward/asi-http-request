@@ -7,6 +7,7 @@
 
 @class ASIHTTPRequest;
 @class ASINetworkQueue;
+@class ASINGNetworkQueue;
 
 @interface AppDelegate : NSObject {
 	ASINetworkQueue *networkQueue;
@@ -44,7 +45,7 @@
 	IBOutlet NSTableView *tableView;
 	IBOutlet NSTextField *tableLoadStatus;
 	NSMutableArray *rowData;
-	ASINetworkQueue *tableQueue;
+	ASINGNetworkQueue *tableQueue;
 }
 
 - (IBAction)simpleURLFetch:(id)sender;
@@ -67,5 +68,5 @@
 
 @property (retain, nonatomic) ASIHTTPRequest *bigFetchRequest;
 @property (retain, nonatomic) NSMutableArray *rowData;
-@property (retain, nonatomic) ASINetworkQueue *tableQueue;
+@property (retain, nonatomic) ASINGNetworkQueue *tableQueue;
 @end

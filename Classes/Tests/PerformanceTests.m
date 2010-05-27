@@ -8,6 +8,7 @@
 
 #import "PerformanceTests.h"
 #import "ASIHTTPRequest.h"
+#import "ASINGNetworkQueue.h"
 
 // IMPORTANT - these tests need to be run one at a time!
 
@@ -121,6 +122,12 @@
 }
 
 
+- (void)testNGQueueASIHTTPRequestAsyncPerformance
+{
+	[self performSelectorOnMainThread:@selector(startASIHTTPRequestsWithNGQueue) withObject:nil waitUntilDone:NO];
+}
+
+
 - (void)startASIHTTPRequests
 {
 	bytesDownloaded = 0;
@@ -137,6 +144,38 @@
 		[request startAsynchronous];
 	}
 }
+
+- (void)startASIHTTPRequestsWithNGQueue
+{
+	bytesDownloaded = 0;
+	[self setRequestsComplete:0];
+	[self setTestStartDate:[NSDate date]];
+	int i;
+	ASINGNetworkQueue *queue = [ASINGNetworkQueue queue];
+	for (i=0; i<10; i++) {
+		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:testURL];
+		//Send the same headers as NSURLRequest
+		[request addRequestHeader:@"Pragma" value:@"no-cache"];
+		[request addRequestHeader:@"Accept" value:@"*/*"];
+		[request addRequestHeader:@"Accept-Language" value:@"en/us"];
+		[request setUseCookiePersistence:NO];
+		[request setUseSessionPersistence:NO];
+		[request setDelegate:self];
+		[request setDidFinishSelector:@selector(NGQueueRequestFinished:)];
+		[queue addRequest:request];
+	}
+	[queue start];
+}
+
+- (void)NGQueueRequestFinished:(ASIHTTPRequest *)request
+{
+	bytesDownloaded += [[request responseData] length];
+	requestsComplete++;
+	if (requestsComplete == 10) {
+		NSLog(@"ASIHTTPRequest: Completed 10 (downloaded %lu bytes) requests in %f seconds",bytesDownloaded,[[NSDate date] timeIntervalSinceDate:[self testStartDate]]);
+	}
+}
+
 
 - (void)startASIHTTPRequestsWithQueue
 {

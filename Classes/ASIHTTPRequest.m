@@ -20,16 +20,18 @@
 #import <SystemConfiguration/SystemConfiguration.h>
 #endif
 #import "ASIInputStream.h"
-
+#import "ASINGNetworkQueue.h"
 
 // Automatically set on build
-NSString *ASIHTTPRequestVersion = @"v1.6.2-13 2010-05-27";
+NSString *ASIHTTPRequestVersion = @"v1.6.2-26 2010-05-27";
 
 NSString* const NetworkRequestErrorDomain = @"ASIHTTPRequestErrorDomain";
 
 static NSString *ASIHTTPRequestRunLoopMode = @"ASIHTTPRequestRunLoopMode";
 
 static const CFOptionFlags kNetworkEvents = kCFStreamEventOpenCompleted | kCFStreamEventHasBytesAvailable | kCFStreamEventEndEncountered | kCFStreamEventErrorOccurred;
+
+static ASINGNetworkQueue *sharedQueue = nil;
 
 // In memory caches of credentials, used on when useSessionPersistence is YES
 static NSMutableArray *sessionCredentialsStore = nil;
@@ -123,6 +125,10 @@ static BOOL isiPhoneOS2;
 
 static id <ASICacheDelegate> defaultCache = nil;
 
+#if TARGET_OS_IPHONE
+static unsigned int runningRequestCount = 0;
+#endif
+
 // Private stuff
 @interface ASIHTTPRequest ()
 
@@ -139,11 +145,8 @@ static id <ASICacheDelegate> defaultCache = nil;
 + (void)recordBandwidthUsage;
 - (void)startRequest;
 
-- (void)markAsFinished;
 - (void)performRedirect;
 - (BOOL)shouldTimeOut;
-
-- (void)updateStatus:(NSTimer*)timer;
 
 - (BOOL)useDataFromCache;
 
@@ -181,14 +184,12 @@ static id <ASICacheDelegate> defaultCache = nil;
 @property (retain) NSString *proxyAuthenticationRealm;
 @property (retain) NSString *responseStatusMessage;
 @property (assign) BOOL isSynchronous;
-@property (assign) BOOL inProgress;
 @property (assign) int retryCount;
 @property (assign) BOOL connectionCanBeReused;
 @property (retain, nonatomic) NSMutableDictionary *connectionInfo;
 @property (retain, nonatomic) NSInputStream *readStream;
 @property (assign) ASIAuthenticationState authenticationNeeded;
 @property (assign, nonatomic) BOOL readStreamIsScheduled;
-@property (retain, nonatomic) NSTimer *statusTimer;
 @property (assign, nonatomic) BOOL downloadComplete;
 @property (retain) NSNumber *requestID;
 @property (assign, nonatomic) NSString *runLoopMode;
@@ -279,8 +280,6 @@ static id <ASICacheDelegate> defaultCache = nil;
 
 - (void)dealloc
 {
-	[statusTimer invalidate];
-	[statusTimer release];
 	[self setAuthenticationNeeded:ASINoAuthenticationNeededYet];
 	if (requestAuthentication) {
 		CFRelease(requestAuthentication);
@@ -481,9 +480,6 @@ static id <ASICacheDelegate> defaultCache = nil;
 	[self setComplete:YES];
 	[self cancelLoad];
 	[[self cancelledLock] unlock];
-	
-	// Must tell the operation to cancel after we unlock, as this request might be dealloced and then NSLock will log an error
-	[super cancel];
 }
 
 
@@ -521,7 +517,6 @@ static id <ASICacheDelegate> defaultCache = nil;
 	NSLog(@"Starting synchronous request %@",self);
 #endif
 	[self setRunLoopMode:ASIHTTPRequestRunLoopMode];
-	[self setInProgress:YES];
 	@try {	
 		if (![self isCancelled] && ![self complete]) {
 			[self setIsSynchronous:YES];
@@ -532,73 +527,24 @@ static id <ASICacheDelegate> defaultCache = nil;
 		NSError *underlyingError = [NSError errorWithDomain:NetworkRequestErrorDomain code:ASIUnhandledExceptionError userInfo:[exception userInfo]];
 		[self failWithError:[NSError errorWithDomain:NetworkRequestErrorDomain code:ASIUnhandledExceptionError userInfo:[NSDictionary dictionaryWithObjectsAndKeys:[exception name],NSLocalizedDescriptionKey,[exception reason],NSLocalizedFailureReasonErrorKey,underlyingError,NSUnderlyingErrorKey,nil]]];
 	}
-	[self setInProgress:NO];
-}
-
-- (void)start
-{
-#if TARGET_OS_IPHONE
-	[self performSelectorInBackground:@selector(startAsynchronous) withObject:nil];
-#else
-
-    SInt32 versionMajor;
-	OSErr err = Gestalt(gestaltSystemVersionMajor, &versionMajor);
-	if (err != noErr) {
-		[NSException raise:@"FailedToDetectOSVersion" format:@"Unable to determine OS version, must give up"];
-	}
-	// GCD will run the operation in its thread pool on Snow Leopard
-	if (versionMajor >= 6) {
-		[self startAsynchronous];
-		
-	// On Leopard, we'll create the thread ourselves
-	} else {
-		[self performSelectorInBackground:@selector(startAsynchronous) withObject:nil];	
-	}
-#endif
 }
 
 - (void)startAsynchronous
 {
+	
+	
 #if DEBUG_REQUEST_STATUS || DEBUG_THROTTLING
 	NSLog(@"Starting asynchronous request %@",self);
 #endif
-	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+	
+	if (!sharedQueue) {
+		sharedQueue = [[ASINGNetworkQueue queue] retain];
+		[sharedQueue start];
+	}
+	if (![self isCancelled] && ![self complete]) {
+		[sharedQueue addRequest:self];
+	}
 
-	[self setInProgress:YES];	
-	@try {	
-		if ([self isCancelled] || [self complete])
-		{
-			[self willChangeValueForKey:@"isFinished"];
-			[self didChangeValueForKey:@"isFinished"];
-		} else {
-			[self willChangeValueForKey:@"isExecuting"];
-			[self didChangeValueForKey:@"isExecuting"];
-
-			[self main];
-
-		}
-		
-	} @catch (NSException *exception) {
-		NSError *underlyingError = [NSError errorWithDomain:NetworkRequestErrorDomain code:ASIUnhandledExceptionError userInfo:[exception userInfo]];
-		[self failWithError:[NSError errorWithDomain:NetworkRequestErrorDomain code:ASIUnhandledExceptionError userInfo:[NSDictionary dictionaryWithObjectsAndKeys:[exception name],NSLocalizedDescriptionKey,[exception reason],NSLocalizedFailureReasonErrorKey,underlyingError,NSUnderlyingErrorKey,nil]]];
-	}	
-	[pool release];
-}
-
-#pragma mark concurrency
-
-- (BOOL)isConcurrent
-{
-    return YES;
-}
-
-- (BOOL)isFinished 
-{
-	return [self complete];
-}
-
-- (BOOL)isExecuting {
-	return [self inProgress];
 }
 
 #pragma mark request logic
@@ -1086,7 +1032,7 @@ static id <ASICacheDelegate> defaultCache = nil;
 	if (![self mainRequest]) {
 		if ([self shouldResetUploadProgress]) {
 			if ([self showAccurateProgress]) {
-				[self incrementUploadSizeBy:[self postLength]];
+				[self incrementUploadSizeBy:[self postLength]-[self uploadBufferSize]];
 			} else {
 				[self incrementUploadSizeBy:1];	 
 			}
@@ -1101,32 +1047,14 @@ static id <ASICacheDelegate> defaultCache = nil;
 	// Record when the request started, so we can timeout if nothing happens
 	[self setLastActivityTime:[NSDate date]];	
 	
-
-	//[self setStatusTimer:[NSTimer timerWithTimeInterval:0.25 target:self selector:@selector(updateStatus:) userInfo:nil repeats:YES]];
-	//[[NSRunLoop currentRunLoop] addTimer:[self statusTimer] forMode:[self runLoopMode]];
-	
-//	// If we're running asynchronously on the main thread, the runloop will already be running and we can return control
-//	if (![NSThread isMainThread] || [self isSynchronous] || ![[self runLoopMode] isEqualToString:NSDefaultRunLoopMode]) {
-//		while (!complete) {
-//			[[NSRunLoop currentRunLoop] runMode:[self runLoopMode] beforeDate:[NSDate distantFuture]];
-//		}
-//	}
-}
-
-- (void)setStatusTimer:(NSTimer *)timer
-{
-	[self retain];
-	// We must invalidate the old timer here, not before we've created and scheduled a new timer
-	// This is because the timer may be the only thing retaining an asynchronous request
-	if (statusTimer && timer != statusTimer) {
-		
-		[statusTimer invalidate];
-		[statusTimer release];
-		
+	if ([self isSynchronous]) {
+		while (![self complete]) {
+			[[NSRunLoop currentRunLoop] runMode:[self runLoopMode] beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
+			[self updateStatus];
+		}
 	}
-	statusTimer = [timer retain];
-	[self release];
 }
+
 
 - (void)performRedirect
 {
@@ -1147,16 +1075,6 @@ static id <ASICacheDelegate> defaultCache = nil;
 		// Go all the way back to the beginning and build the request again, so that we can apply any new cookies
 		[self main];
 	}
-}
-
-// This gets fired every 1/4 of a second to update the progress and work out if we need to timeout
-- (void)updateStatus:(NSTimer*)timer
-{	
-//	[self checkRequestStatus];
-//	if (![self inProgress]) {
-//		[self setStatusTimer:nil];
-//		CFRunLoopStop(CFRunLoopGetCurrent());
-//	}
 }
 
 - (BOOL)shouldTimeOut
@@ -1381,7 +1299,7 @@ static id <ASICacheDelegate> defaultCache = nil;
 		return;
 	}
 
-	[ASIHTTPRequest performSelector:@selector(request:didReceiveBytes:) onTarget:[self queue] withObject:self amount:&value];
+	[[self queue] request:self didReceiveBytes:value];
 	[ASIHTTPRequest performSelector:@selector(request:didReceiveBytes:) onTarget:[self downloadProgressDelegate] withObject:self amount:&value];
 	[ASIHTTPRequest updateProgressIndicator:[self downloadProgressDelegate] withProgress:[self totalBytesRead]+[self partialDownloadSize] ofTotal:[self contentLength]+[self partialDownloadSize]];
 		
@@ -1420,22 +1338,22 @@ static id <ASICacheDelegate> defaultCache = nil;
 		return;
 	}
 	
-	[ASIHTTPRequest performSelector:@selector(request:didSendBytes:) onTarget:[self queue] withObject:self amount:&value];
+	[[self queue] request:self didSendBytes:value];
 	[ASIHTTPRequest performSelector:@selector(request:didSendBytes:) onTarget:[self uploadProgressDelegate] withObject:self amount:&value];
-	[ASIHTTPRequest updateProgressIndicator:[self uploadProgressDelegate] withProgress:[self totalBytesSent]-[self uploadBufferSize] ofTotal:[self postLength]];
+	[ASIHTTPRequest updateProgressIndicator:[self uploadProgressDelegate] withProgress:[self totalBytesSent]-[self uploadBufferSize] ofTotal:[self postLength]-[self uploadBufferSize]];
 }
 
 
 - (void)incrementDownloadSizeBy:(long long)length
 {
-	[ASIHTTPRequest performSelector:@selector(request:incrementDownloadSizeBy:) onTarget:[self queue] withObject:self amount:&length];
+	[[self queue] request:self incrementDownloadSizeBy:length];
 	[ASIHTTPRequest performSelector:@selector(request:incrementDownloadSizeBy:) onTarget:[self downloadProgressDelegate] withObject:self amount:&length];
 }
 
 
 - (void)incrementUploadSizeBy:(long long)length
 {
-	[ASIHTTPRequest performSelector:@selector(request:incrementUploadSizeBy:) onTarget:[self queue] withObject:self amount:&length];
+	[[self queue] request:self incrementUploadSizeBy:length];
 	[ASIHTTPRequest performSelector:@selector(request:incrementUploadSizeBy:) onTarget:[self uploadProgressDelegate] withObject:self amount:&length];
 }
 
@@ -1443,9 +1361,9 @@ static id <ASICacheDelegate> defaultCache = nil;
 -(void)removeUploadProgressSoFar
 {
 	long long progressToRemove = -[self totalBytesSent];
-	[ASIHTTPRequest performSelector:@selector(request:didSendBytes:) onTarget:[self queue] withObject:self amount:&progressToRemove];
+	[[self queue] request:self didSendBytes:progressToRemove];
 	[ASIHTTPRequest performSelector:@selector(request:didSendBytes:) onTarget:[self uploadProgressDelegate] withObject:self amount:&progressToRemove];
-	[ASIHTTPRequest updateProgressIndicator:[self uploadProgressDelegate] withProgress:0 ofTotal:[self postLength]];
+	[ASIHTTPRequest updateProgressIndicator:[self uploadProgressDelegate] withProgress:0 ofTotal:[self postLength]-[self uploadBufferSize]];
 }
 
 
@@ -1618,11 +1536,6 @@ static id <ASICacheDelegate> defaultCache = nil;
 	if ([[failedRequest queue] respondsToSelector:@selector(requestFailed:)]) {
 		[[failedRequest queue] performSelectorOnMainThread:@selector(requestFailed:) withObject:failedRequest waitUntilDone:[NSThread isMainThread]];		
 	}
-	
-	[self markAsFinished];
-	if ([self mainRequest]) {
-		[[self mainRequest] markAsFinished];
-	}	
 }
 
 #pragma mark parsing HTTP response headers
@@ -2462,7 +2375,7 @@ static id <ASICacheDelegate> defaultCache = nil;
 			[self attemptToApplyCredentialsAndResume];
 			return;
 		}
-	} else {
+		
 		[self requestFinished];
 	}
 	
@@ -2583,6 +2496,11 @@ static id <ASICacheDelegate> defaultCache = nil;
 	if (![self responseHeaders]) {
 		[self readResponseHeaders];
 	}
+	
+	if ([self complete]) {
+		return;
+	}
+	
 
 	[progressLock lock];	
 	// Find out how much data we've uploaded so far
@@ -2672,13 +2590,6 @@ static id <ASICacheDelegate> defaultCache = nil;
 	}
 }
 
-- (void)markAsFinished
-{
-	[self willChangeValueForKey:@"isFinished"];
-	[self didChangeValueForKey:@"isFinished"];
-	[self setInProgress:NO];
-	CFRunLoopStop(CFRunLoopGetCurrent());
-}
 
 - (BOOL)useDataFromCache
 {
@@ -2698,6 +2609,7 @@ static id <ASICacheDelegate> defaultCache = nil;
 		}
 	}
 	
+	[self cancelLoad];
 	[self setDidUseCachedResponse:YES];
 	
 	ASIHTTPRequest *theRequest = self;
@@ -2718,11 +2630,8 @@ static id <ASICacheDelegate> defaultCache = nil;
 	[theRequest setDownloadComplete:YES];
 	
 	[theRequest updateProgressIndicators];
-	[theRequest requestFinished];
-	[theRequest markAsFinished];	
-	if ([self mainRequest]) {
-		[self markAsFinished];
-	}
+	
+	[self requestFinished];
 	return YES;
 }
 
@@ -2792,7 +2701,14 @@ static id <ASICacheDelegate> defaultCache = nil;
 {
     if ([self readStream]) {
 		CFReadStreamSetClient((CFReadStreamRef)[self readStream], kCFStreamEventNone, NULL, NULL);
-		[connectionsLock lock];		
+		[connectionsLock lock];	
+		
+		#if TARGET_OS_IPHONE
+		runningRequestCount--;
+		if (runningRequestCount == 0) {
+			[[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
+		}
+		#endif
 
 		if (![self connectionCanBeReused]) {
 			[[self readStream] removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:[self runLoopMode]];
@@ -2807,6 +2723,14 @@ static id <ASICacheDelegate> defaultCache = nil;
 - (void)scheduleReadStream
 {
 	if ([self readStream] && ![self readStreamIsScheduled]) {
+		
+		#if TARGET_OS_IPHONE
+		[connectionsLock lock];
+		runningRequestCount++;
+		[[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:YES];
+		[connectionsLock unlock];
+		#endif
+		
 		// Reset the timeout
 		[self setLastActivityTime:[NSDate date]];
 		[[self readStream] scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:[self runLoopMode]];
@@ -2817,6 +2741,16 @@ static id <ASICacheDelegate> defaultCache = nil;
 - (void)unscheduleReadStream
 {
 	if ([self readStream] && [self readStreamIsScheduled]) {
+		
+		#if TARGET_OS_IPHONE
+		[connectionsLock lock];
+		runningRequestCount--;
+		if (runningRequestCount == 0) {
+			[[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
+		}
+		[connectionsLock unlock];
+		#endif
+		
 		[[self readStream] removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:[self runLoopMode]];
 		[self setReadStreamIsScheduled:NO];
 	}
@@ -3907,7 +3841,6 @@ static id <ASICacheDelegate> defaultCache = nil;
 @synthesize connectionInfo;
 @synthesize readStream;
 @synthesize readStreamIsScheduled;
-@synthesize statusTimer;
 @synthesize shouldUseRFC2616RedirectBehaviour;
 @synthesize downloadComplete;
 @synthesize requestID;
