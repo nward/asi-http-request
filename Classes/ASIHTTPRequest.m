@@ -121,6 +121,8 @@ static NSDate *throttleWakeUpTime = nil;
 // Run once in initalize to record at runtime whether we're on iPhone OS 2. When YES, a workaround for a type conversion bug in iPhone OS 2.2.x is applied in some places
 static BOOL isiPhoneOS2;
 
+static id <ASICacheDelegate> defaultCache = nil;
+
 // Private stuff
 @interface ASIHTTPRequest ()
 
@@ -143,6 +145,8 @@ static BOOL isiPhoneOS2;
 
 - (void)updateStatus:(NSTimer*)timer;
 
+- (BOOL)useDataFromCache;
+
 #if TARGET_OS_IPHONE
 + (void)registerForNetworkReachabilityNotifications;
 + (void)unsubscribeFromNetworkReachabilityNotifications;
@@ -151,10 +155,8 @@ static BOOL isiPhoneOS2;
 #endif
 
 @property (assign) BOOL complete;
-@property (retain) NSDictionary *responseHeaders;
 @property (retain) NSArray *responseCookies;
 @property (assign) int responseStatusCode;
-@property (retain) NSMutableData *rawResponseData;
 @property (retain, nonatomic) NSDate *lastActivityTime;
 @property (assign) unsigned long long contentLength;
 @property (assign) unsigned long long partialDownloadSize;
@@ -190,6 +192,7 @@ static BOOL isiPhoneOS2;
 @property (assign, nonatomic) BOOL downloadComplete;
 @property (retain) NSNumber *requestID;
 @property (assign, nonatomic) NSString *runLoopMode;
+@property (assign) BOOL didUseCachedResponse;
 @end
 
 
@@ -252,12 +255,26 @@ static BOOL isiPhoneOS2;
 	[self setDidReceiveDataSelector:@selector(request:didReceiveData:)];
 	[self setURL:newURL];
 	[self setCancelledLock:[[[NSRecursiveLock alloc] init] autorelease]];
+	[self setDownloadCache:[[self class] defaultCache]];
 	return self;
 }
 
 + (id)requestWithURL:(NSURL *)newURL
 {
 	return [[[self alloc] initWithURL:newURL] autorelease];
+}
+
++ (id)requestWithURL:(NSURL *)newURL usingCache:(id <ASICacheDelegate>)cache
+{
+	return [self requestWithURL:newURL usingCache:cache andCachePolicy:ASIDefaultCachePolicy];
+}
+
++ (id)requestWithURL:(NSURL *)newURL usingCache:(id <ASICacheDelegate>)cache andCachePolicy:(ASICachePolicy)policy
+{
+	ASIHTTPRequest *request = [[[self alloc] initWithURL:newURL] autorelease];
+	[request setDownloadCache:cache];
+	[request setCachePolicy:policy];
+	return request;
 }
 
 - (void)dealloc
@@ -607,6 +624,10 @@ static BOOL isiPhoneOS2;
 		[self buildPostBody];
 	}
 	
+	if (![[self requestMethod] isEqualToString:@"GET"]) {
+		[self setDownloadCache:nil];
+	}
+	
 	// If we're redirecting, we'll already have a CFHTTPMessageRef
 	if (request) {
 		CFRelease(request);
@@ -627,6 +648,33 @@ static BOOL isiPhoneOS2;
 	// Even if this is a HEAD request with a mainRequest, we still need to call to give subclasses a chance to add their own to HEAD requests (ASIS3Request does this)
 	[self buildRequestHeaders];
 	
+	if ([self downloadCache]) {
+		if ([self cachePolicy] == ASIDefaultCachePolicy) {
+			[self setCachePolicy:[[self downloadCache] defaultCachePolicy]];
+		}
+
+		// See if we should pull from the cache rather than fetching the data
+		if ([self cachePolicy] == ASIOnlyLoadIfNotCachedCachePolicy) {
+			if ([self useDataFromCache]) {
+				return;
+			}
+		} else if ([self cachePolicy] == ASIReloadIfDifferentCachePolicy) {
+
+			// Force a conditional GET if we have a cached version of this content already
+			NSDictionary *cachedHeaders = [[self downloadCache] cachedHeadersForRequest:self];
+			if (cachedHeaders) {
+				NSString *etag = [cachedHeaders objectForKey:@"Etag"];
+				if (etag) {
+					[[self requestHeaders] setObject:etag forKey:@"If-None-Match"];
+				}
+				NSString *lastModified = [cachedHeaders objectForKey:@"Last-Modified"];
+				if (lastModified) {
+					[[self requestHeaders] setObject:lastModified forKey:@"If-Modified-Since"];
+				}
+			}
+		}
+	}
+
 	[self applyAuthorizationHeader];
 	
 	
@@ -768,7 +816,6 @@ static BOOL isiPhoneOS2;
 		}
 		[self addRequestHeader:@"Range" value:[NSString stringWithFormat:@"bytes=%llu-",[self partialDownloadSize]]];
 	}	
-	
 }
 
 - (void)startRequest
@@ -1545,6 +1592,13 @@ static BOOL isiPhoneOS2;
 		return;
 	}
 	
+	if ([self downloadCache] && [self cachePolicy] == ASIUseCacheIfLoadFailsCachePolicy) {
+		if ([self useDataFromCache]) {
+			return;
+		}
+	}
+	
+	
 	[self setError:theError];
 	
 	ASIHTTPRequest *failedRequest = self;
@@ -1598,8 +1652,16 @@ static BOOL isiPhoneOS2;
 	[self setResponseHeaders:(NSDictionary *)headerFields];
 
 	CFRelease(headerFields);
+	
 	[self setResponseStatusCode:(int)CFHTTPMessageGetResponseStatusCode(message)];
 	[self setResponseStatusMessage:[(NSString *)CFHTTPMessageCopyResponseStatusLine(message) autorelease]];
+	
+	if ([self downloadCache] && [self cachePolicy] == ASIReloadIfDifferentCachePolicy) {
+		if ([self useDataFromCache]) {
+			CFRelease(message);
+			return;
+		}
+	}
 
 	// Is the server response a challenge for credentials?
 	if ([self responseStatusCode] == 401) {
@@ -2413,6 +2475,11 @@ static BOOL isiPhoneOS2;
 		[self readResponseHeaders];
 	}
 	
+	// If we've cancelled the load part way through (for example, after deciding to use a cached version)
+	if ([self complete]) {
+		return;
+	}
+	
 	// In certain (presumably very rare) circumstances, handleBytesAvailable seems to be called when there isn't actually any data available
 	// We'll check that there is actually data available to prevent blocking on CFReadStreamRead()
 	// So far, I've only seen this in the stress tests, so it might never happen in real-world situations.
@@ -2572,6 +2639,12 @@ static BOOL isiPhoneOS2;
 			
 		}
 	}
+	
+	// Save to the cache
+	if ([self downloadCache]) {
+		[[self downloadCache] storeResponseForRequest:self maxAge:[self secondsToCache]];
+	}
+	
 	[progressLock unlock];
 
 	
@@ -2605,6 +2678,52 @@ static BOOL isiPhoneOS2;
 	[self didChangeValueForKey:@"isFinished"];
 	[self setInProgress:NO];
 	CFRunLoopStop(CFRunLoopGetCurrent());
+}
+
+- (BOOL)useDataFromCache
+{
+	NSDictionary *headers = [[self downloadCache] cachedHeadersForRequest:self];
+	if (!headers) {
+		return NO;
+	}
+	NSString *dataPath = [[self downloadCache] pathToCachedResponseDataForRequest:self];
+	if (!dataPath) {
+		return NO;
+	}
+	
+	if ([self cachePolicy] == ASIReloadIfDifferentCachePolicy) {
+		if (![[self downloadCache] isCachedDataCurrentForRequest:self]) {
+			[[self downloadCache] removeCachedDataForRequest:self];
+			return NO;
+		}
+	}
+	
+	[self setDidUseCachedResponse:YES];
+	
+	ASIHTTPRequest *theRequest = self;
+	if ([self mainRequest]) {
+		theRequest = [self mainRequest];
+	}
+	[theRequest setResponseHeaders:headers];
+	if ([theRequest downloadDestinationPath]) {
+		[theRequest setDownloadDestinationPath:dataPath];
+	} else {
+		[theRequest setRawResponseData:[NSMutableData dataWithContentsOfFile:dataPath]];
+	}
+	[theRequest setContentLength:[[[self responseHeaders] objectForKey:@"Content-Length"] longLongValue]];
+	[theRequest setTotalBytesRead:[self contentLength]];
+	
+	
+	[theRequest setComplete:YES];
+	[theRequest setDownloadComplete:YES];
+	
+	[theRequest updateProgressIndicators];
+	[theRequest requestFinished];
+	[theRequest markAsFinished];	
+	if ([self mainRequest]) {
+		[self markAsFinished];
+	}
+	return YES;
 }
 
 - (BOOL)retryUsingNewConnection
@@ -3001,6 +3120,7 @@ static BOOL isiPhoneOS2;
 	[[[self class] sessionCredentialsStore] removeAllObjects];
 	[sessionCredentialsLock unlock];
 	[[self class] setSessionCookies:nil];
+	[[[self class] defaultCache] clearCachedResponsesForStoragePolicy:ASICacheForSessionDurationCacheStoragePolicy];
 }
 
 #pragma mark gzip decompression
@@ -3617,6 +3737,18 @@ static BOOL isiPhoneOS2;
 #endif
 
 
++ (void)setDefaultCache:(id <ASICacheDelegate>)cache
+{
+	[defaultCache release];
+	defaultCache = [cache retain];
+}
+
++ (id <ASICacheDelegate>)defaultCache
+{
+	return defaultCache;
+}
+
+
 #pragma mark miscellany 
 
 + (BOOL)isiPhoneOS2
@@ -3657,6 +3789,25 @@ static BOOL isiPhoneOS2;
     }
 	
     return [[[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding] autorelease];
+}
+
+// Based on hints from http://stackoverflow.com/questions/1850824/parsing-a-rfc-822-date-with-nsdateformatter
++ (NSDate *)dateFromRFC1123String:(NSString *)string
+{
+	NSDateFormatter *formatter = [[[NSDateFormatter alloc] init] autorelease];
+	[formatter setLocale:[[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"] autorelease]];
+	// Does the string include a week day?
+	NSString *day = @"";
+	if ([string rangeOfString:@","].location != NSNotFound) {
+		day = @"EEE, ";
+	}
+	// Does the string include seconds?
+	NSString *seconds = @"";
+	if ([[string componentsSeparatedByString:@":"] count] == 3) {
+		seconds = @":ss";
+	}
+	[formatter setDateFormat:[NSString stringWithFormat:@"%@dd MMM yyyy HH:mm%@ z",day,seconds]];
+	return [formatter dateFromString:string];
 }
 
 #pragma mark ===
@@ -3761,4 +3912,9 @@ static BOOL isiPhoneOS2;
 @synthesize downloadComplete;
 @synthesize requestID;
 @synthesize runLoopMode;
+@synthesize downloadCache;
+@synthesize cachePolicy;
+@synthesize cacheStoragePolicy;
+@synthesize didUseCachedResponse;
+@synthesize secondsToCache;
 @end
