@@ -20,10 +20,10 @@
 #import <SystemConfiguration/SystemConfiguration.h>
 #endif
 #import "ASIInputStream.h"
-#import "ASINGNetworkQueue.h"
+#import "ASINetworkQueue.h"
 
 // Automatically set on build
-NSString *ASIHTTPRequestVersion = @"v1.6.2-26 2010-05-27";
+NSString *ASIHTTPRequestVersion = @"v1.6.2-27 2010-05-27";
 
 NSString* const NetworkRequestErrorDomain = @"ASIHTTPRequestErrorDomain";
 
@@ -31,7 +31,7 @@ static NSString *ASIHTTPRequestRunLoopMode = @"ASIHTTPRequestRunLoopMode";
 
 static const CFOptionFlags kNetworkEvents = kCFStreamEventOpenCompleted | kCFStreamEventHasBytesAvailable | kCFStreamEventEndEncountered | kCFStreamEventErrorOccurred;
 
-static ASINGNetworkQueue *sharedQueue = nil;
+static ASINetworkQueue *sharedQueue = nil;
 
 // In memory caches of credentials, used on when useSessionPersistence is YES
 static NSMutableArray *sessionCredentialsStore = nil;
@@ -538,8 +538,9 @@ static unsigned int runningRequestCount = 0;
 #endif
 	
 	if (!sharedQueue) {
-		sharedQueue = [[ASINGNetworkQueue queue] retain];
-		[sharedQueue start];
+		sharedQueue = [[ASINetworkQueue queue] retain];
+		[sharedQueue go];
+		[sharedQueue setShowAccurateProgress:YES];
 	}
 	if (![self isCancelled] && ![self complete]) {
 		[sharedQueue addRequest:self];
@@ -1467,11 +1468,11 @@ static unsigned int runningRequestCount = 0;
 #if DEBUG_REQUEST_STATUS || DEBUG_THROTTLING
 	NSLog(@"Request finished: %@",self);
 #endif
-	if ([self error] || [self mainRequest]) {
+	if ([self error]) {
 		return;
 	}
 	// Let the delegate know we are done
-	if ([self didFinishSelector] && [[self delegate] respondsToSelector:[self didFinishSelector]]) {
+	if ([self didFinishSelector] && ![self mainRequest] && [[self delegate] respondsToSelector:[self didFinishSelector]]) {
 		[[self delegate] performSelectorOnMainThread:[self didFinishSelector] withObject:self waitUntilDone:[NSThread isMainThread]];		
 	}
 	
@@ -1523,8 +1524,16 @@ static unsigned int runningRequestCount = 0;
 	
 	// If this is a HEAD request created by an ASINetworkQueue or compatible queue delegate, make the main request fail
 	if ([self mainRequest]) {
+		
+		// Tell the queue to remove this request
+		if ([[self queue] respondsToSelector:@selector(requestFailed:)]) {
+			[[self queue] requestFailed:self];		
+		}
+		
 		failedRequest = [self mainRequest];
 		[failedRequest setError:theError];
+		
+
 	}
 
 	// Let the delegate know something went wrong
@@ -1534,7 +1543,7 @@ static unsigned int runningRequestCount = 0;
 	
 	// Let the queue know something went wrong
 	if ([[failedRequest queue] respondsToSelector:@selector(requestFailed:)]) {
-		[[failedRequest queue] performSelectorOnMainThread:@selector(requestFailed:) withObject:failedRequest waitUntilDone:[NSThread isMainThread]];		
+		[[failedRequest queue] requestFailed:failedRequest];		
 	}
 }
 
@@ -2367,11 +2376,9 @@ static unsigned int runningRequestCount = 0;
 	
 	if ([self downloadComplete]) {
 		if ([self needsRedirect]) {
-			CFRunLoopStop(CFRunLoopGetCurrent());
 			[self performRedirect];
 			return;
 		} else if ([self authenticationNeeded]) {
-			CFRunLoopStop(CFRunLoopGetCurrent());
 			[self attemptToApplyCredentialsAndResume];
 			return;
 		}
@@ -2704,10 +2711,14 @@ static unsigned int runningRequestCount = 0;
 		[connectionsLock lock];	
 		
 		#if TARGET_OS_IPHONE
-		runningRequestCount--;
-		if (runningRequestCount == 0) {
-			[[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
+		[progressLock lock];
+		if ([self readStreamIsScheduled]) {
+			runningRequestCount--;
+			if (runningRequestCount == 0) {
+				[[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
+			}
 		}
+		[progressLock unlock];
 		#endif
 
 		if (![self connectionCanBeReused]) {
@@ -2725,10 +2736,10 @@ static unsigned int runningRequestCount = 0;
 	if ([self readStream] && ![self readStreamIsScheduled]) {
 		
 		#if TARGET_OS_IPHONE
-		[connectionsLock lock];
+		[progressLock lock];
 		runningRequestCount++;
 		[[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:YES];
-		[connectionsLock unlock];
+		[progressLock unlock];
 		#endif
 		
 		// Reset the timeout
@@ -2743,12 +2754,12 @@ static unsigned int runningRequestCount = 0;
 	if ([self readStream] && [self readStreamIsScheduled]) {
 		
 		#if TARGET_OS_IPHONE
-		[connectionsLock lock];
+		[progressLock lock];
 		runningRequestCount--;
 		if (runningRequestCount == 0) {
 			[[UIApplication sharedApplication] setNetworkActivityIndicatorVisible:NO];
 		}
-		[connectionsLock unlock];
+		[progressLock unlock];
 		#endif
 		
 		[[self readStream] removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:[self runLoopMode]];

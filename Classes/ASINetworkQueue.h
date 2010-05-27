@@ -1,20 +1,28 @@
 //
-//  ASINetworkQueue.h
-//  Part of ASIHTTPRequest -> http://allseeing-i.com/ASIHTTPRequest
+//  ASINGNetworkQueue.h
+//  Mac
 //
-//  Created by Ben Copsey on 07/11/2008.
-//  Copyright 2008-2009 All-Seeing Interactive. All rights reserved.
+//  Created by Ben Copsey on 26/05/2010.
+//  Copyright 2010 All-Seeing Interactive. All rights reserved.
 //
 
 #import <Foundation/Foundation.h>
 #import "ASIHTTPRequestDelegate.h"
 #import "ASIProgressDelegate.h"
 
-@interface ASINetworkQueue : NSOperationQueue <ASIProgressDelegate, ASIHTTPRequestDelegate, NSCopying> {
+@class ASIHTTPRequest;
+
+@interface ASINetworkQueue : NSObject <ASIProgressDelegate, ASIHTTPRequestDelegate, NSCopying> {
+	NSMutableArray *queuedRequests;
+	NSMutableArray *runningRequests;
+	NSRecursiveLock *requestLock;
+	NSConditionLock *inProgressLock;
+	NSThread *thread;
+	NSTimer *requestStatusTimer;
 	
 	// Delegate will get didFail + didFinish messages (if set)
 	id delegate;
-
+	
 	// Will be called when a request starts with the request as the argument
 	SEL requestDidStartSelector;
 	
@@ -38,7 +46,7 @@
 	
 	// Total amount to be uploaded for all requests in this queue - requests add to this figure as they work out how much data they have to transmit
 	unsigned long long totalBytesToUpload;
-
+	
 	// Download progress indicator, probably an NSProgressIndicator or UIProgressView
 	id downloadProgressDelegate;
 	
@@ -51,9 +59,6 @@
 	// When YES, the queue will cancel all requests when a request fails. Default is YES
 	BOOL shouldCancelAllRequestsOnFailure;
 	
-	//Number of real requests (excludes HEAD requests created to manage showAccurateProgress)
-	int requestsCount;
-	
 	// When NO, this request will only update the progress indicator when it completes
 	// When YES, this request will update the progress indicator according to how much data it has received so far
 	// When YES, the queue will first perform HEAD requests for all GET requests in the queue, so it can calculate the total download size before it starts
@@ -61,32 +66,23 @@
 	// Set to YES if the size of a requests in the queue varies greatly for much more accurate results
 	// Default for requests in the queue is NO
 	BOOL showAccurateProgress;
-
+	
 	// Storage container for additional queue information.
 	NSDictionary *userInfo;
 	
+	unsigned int maxConcurrentRequestCount;
+	
+	BOOL suspended;
+	
 }
 
-// Convenience constructor
 + (id)queue;
-
-// Call this to reset a queue - it will cancel all operations, clear delegates, and suspend operation
-- (void)reset;
-
-// Used internally to manage HEAD requests when showAccurateProgress is YES, do not use!
-- (void)addHEADOperation:(NSOperation *)operation;
-
-// All ASINetworkQueues are paused when created so that total size can be calculated before the queue starts
-// This method will start the queue
+- (void)addRequest:(ASIHTTPRequest *)request;
+- (void)cancelAllRequests;
 - (void)go;
-
-// Used on iPhone platform to show / hide the network activity indicator (in the status bar)
-// On mac, you could subclass to do something else
-- (void)updateNetworkActivityIndicator;
-
-// Returns YES if the queue is in progress
-- (BOOL)isNetworkActive;
-
+- (void)reset;
+- (void)waitUntilAllRequestsAreFinished;
+- (NSUInteger)requestsCount;
 
 @property (assign,setter=setUploadProgressDelegate:) id uploadProgressDelegate;
 @property (assign,setter=setDownloadProgressDelegate:) id downloadProgressDelegate;
@@ -99,12 +95,13 @@
 @property (assign) BOOL shouldCancelAllRequestsOnFailure;
 @property (assign) id delegate;
 @property (assign) BOOL showAccurateProgress;
-@property (assign, readonly) int requestsCount;
 @property (retain) NSDictionary *userInfo;
+@property (assign, getter=isSuspended) BOOL suspended;
 
 @property (assign) unsigned long long bytesUploadedSoFar;
 @property (assign) unsigned long long totalBytesToUpload;
 @property (assign) unsigned long long bytesDownloadedSoFar;
 @property (assign) unsigned long long totalBytesToDownload;
+@property (assign) unsigned int maxConcurrentRequestCount;
 
 @end

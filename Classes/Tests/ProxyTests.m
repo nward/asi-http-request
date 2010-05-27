@@ -117,14 +117,14 @@ static NSString *proxyPassword = @"";
 	BOOL success = (![proxyHost isEqualToString:@""] && proxyPort > 0 && ![proxyUsername isEqualToString:@""] && ![proxyPassword isEqualToString:@""]);
 	GHAssertTrue(success,@"You need to supply the details of your authenticating proxy to run the proxy authentication test");	
 	
-	[[self queue] cancelAllOperations];
+	[[self queue] cancelAllRequests];
 	[self setQueue:[ASINetworkQueue queue]];
 	[[self queue] setDelegate:self];
 	[[self queue] setRequestDidFinishSelector:@selector(requestFinished:)];
 	[[self queue] setRequestDidFailSelector:@selector(requestFailed:)];
 	
 	ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com"]];
-	[[self queue] addOperation:request];
+	[[self queue] addRequest:request];
 	
 	[queue go];
 	
@@ -162,14 +162,14 @@ static NSString *proxyPassword = @"";
 	BOOL success = (![proxyHost isEqualToString:@""] && proxyPort > 0 && ![proxyUsername isEqualToString:@""] && ![proxyPassword isEqualToString:@""]);
 	GHAssertTrue(success,@"You need to supply the details of your authenticating proxy to run the proxy authentication test");	
 	
-	[[self queue] cancelAllOperations];
+	[[self queue] cancelAllRequests];
 	[self setQueue:[ASINetworkQueue queue]];
 	[[self queue] setDelegate:self];
 	[[self queue] setRequestDidFinishSelector:@selector(requestDone:)];
 	[[self queue] setRequestDidFailSelector:@selector(requestFailed:)];
 	
 	ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/basic-authentication"]];
-	[[self queue] addOperation:request];
+	[[self queue] addRequest:request];
 	
 	[queue go];
 	

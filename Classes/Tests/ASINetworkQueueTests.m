@@ -15,7 +15,7 @@
 /*
 IMPORTANT
 Code that appears in these tests is not for general purpose use. 
-You should not use [networkQueue waitUntilAllOperationsAreFinished] or [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]] in your own software.
+You should not use [networkQueue waitUntilAllRequestsAreFinished] or [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]] in your own software.
 They are used here to force a queue to operate synchronously to simplify writing the tests.
 IMPORTANT
 */
@@ -43,7 +43,7 @@ IMPORTANT
 	for (i=0; i<5; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/basic-authentication"]];
 		[request setUserInfo:userInfo];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}
 	[networkQueue go];
 	
@@ -66,10 +66,10 @@ IMPORTANT
 	[networkQueue setRequestDidReceiveResponseHeadersSelector:@selector(delegateTestResponseHeaders:)];
 	
 	ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com"]];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	[networkQueue go];
 	
-	[networkQueue waitUntilAllOperationsAreFinished];
+	[networkQueue waitUntilAllRequestsAreFinished];
 	
 	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
 
@@ -83,10 +83,10 @@ IMPORTANT
 	
 	request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/the_great_american_novel_%28abridged%29.txt"]];
 	[request setTimeOutSeconds:0.01];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	[networkQueue go];
 	
-	[networkQueue waitUntilAllOperationsAreFinished];
+	[networkQueue waitUntilAllRequestsAreFinished];
 
 	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
 	
@@ -131,7 +131,7 @@ IMPORTANT
 	for (i=0; i<5; i++) {
 		NSURL *url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/i/logo.png"] autorelease];
 		ASIHTTPRequest *request = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}
 	[networkQueue go];
 		
@@ -147,13 +147,13 @@ IMPORTANT
 	//Now test again with accurate progress
 	complete = NO;
 	progress = 0;
-	[networkQueue cancelAllOperations];
+	[networkQueue cancelAllRequests];
 	[networkQueue setShowAccurateProgress:YES];
 	
 	for (i=0; i<5; i++) {
 		NSURL *url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/i/logo.png"] autorelease];
 		ASIHTTPRequest *request = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}	
 	[networkQueue go];
 	
@@ -183,13 +183,11 @@ IMPORTANT
 	for (i=0; i<5; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com"]];
 		[request setAllowCompressedResponse:NO]; // A bit hacky - my server will send a chunked response (without content length) when we don't specify that we accept gzip
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}	
 	[networkQueue go];
 	
-	while (!complete) {
-		[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
-	}
+	[networkQueue waitUntilAllRequestsAreFinished];
 	
 	BOOL success = (progress == 1.0);
 	GHAssertTrue(success,@"Failed to increment progress properly");
@@ -207,13 +205,11 @@ IMPORTANT
 	
 	for (i=0; i<5; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com"]];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}	
 	[networkQueue go];
 	
-	while (!complete) {
-		[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
-	}
+	[networkQueue waitUntilAllRequestsAreFinished];
 	
 	success = (progress == 1.0);
 	GHAssertTrue(success,@"Failed to increment progress properly");
@@ -239,7 +235,7 @@ IMPORTANT
 		ASIHTTPRequest *request = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
 		[request setDelegate:self];
 		[request setDidFinishSelector:@selector(addedRequestComplete:)];
-		[[self addMoreRequestsQueue] addOperation:request];
+		[[self addMoreRequestsQueue] addRequest:request];
 	}	
 	[[self addMoreRequestsQueue] go];
 	
@@ -254,7 +250,7 @@ IMPORTANT
 	}
 	
 	// Must wait or subsequent tests will reset our progress
-	[[self addMoreRequestsQueue] waitUntilAllOperationsAreFinished];
+	[[self addMoreRequestsQueue] waitUntilAllRequestsAreFinished];
 }
 
 - (void)addAnotherRequest
@@ -264,7 +260,7 @@ IMPORTANT
 	ASIHTTPRequest *request = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
 	[request setDelegate:self];
 	[request setDidFinishSelector:@selector(addedRequestComplete:)];
-	[[self addMoreRequestsQueue] addOperation:request];
+	[[self addMoreRequestsQueue] addRequest:request];
 }
 
 - (void)addedRequestComplete:(ASIHTTPRequest *)request
@@ -316,7 +312,7 @@ IMPORTANT
 		[data writeToFile:path atomically:NO];
 		ASIFormDataRequest *request = [[[ASIFormDataRequest alloc] initWithURL:url] autorelease];
 		[request setFile:path forKey:@"file"];
-		[networkQueue addOperation:request];	
+		[networkQueue addRequest:request];	
 	}
 	
 	[networkQueue go];
@@ -345,7 +341,7 @@ IMPORTANT
 		[data writeToFile:path atomically:NO];
 		ASIFormDataRequest *request = [[[ASIFormDataRequest alloc] initWithURL:url] autorelease];
 		[request setFile:path forKey:@"file"];
-		[networkQueue addOperation:request];	
+		[networkQueue addRequest:request];	
 	}
 	
 	[networkQueue go];
@@ -385,27 +381,27 @@ IMPORTANT
 	NSURL *url;	
 	url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/first"] autorelease];
 	ASIHTTPRequest *request1 = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
-	[networkQueue addOperation:request1];
+	[networkQueue addRequest:request1];
 	
 	url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/second"] autorelease];
 	ASIHTTPRequest *request2 = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
-	[networkQueue addOperation:request2];
+	[networkQueue addRequest:request2];
 	
 	url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/third"] autorelease];
 	ASIHTTPRequest *request3 = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
-	[networkQueue addOperation:request3];
+	[networkQueue addRequest:request3];
 	
 	url = [[[NSURL alloc] initWithString:@""] autorelease];
 	requestThatShouldFail = [[ASIHTTPRequest alloc] initWithURL:url];
-	[networkQueue addOperation:requestThatShouldFail];
+	[networkQueue addRequest:requestThatShouldFail];
 
 	url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/broken"] autorelease];
 	ASIHTTPRequest *request5 = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
-	[networkQueue addOperation:request5];
+	[networkQueue addRequest:request5];
 
 	[networkQueue go];
 	
-	[networkQueue waitUntilAllOperationsAreFinished];
+	[networkQueue waitUntilAllRequestsAreFinished];
 	
 	
 	BOOL success;
@@ -455,23 +451,23 @@ IMPORTANT
 	NSURL *url;	
 	url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/first"] autorelease];
 	ASIHTTPRequest *request1 = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
-	[networkQueue addOperation:request1];
+	[networkQueue addRequest:request1];
 	
 	url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/second"] autorelease];
 	ASIHTTPRequest *request2 = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
-	[networkQueue addOperation:request2];
+	[networkQueue addRequest:request2];
 	
 	url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/third"] autorelease];
 	ASIHTTPRequest *request3 = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
-	[networkQueue addOperation:request3];
+	[networkQueue addRequest:request3];
 	
 	url = [[[NSURL alloc] initWithString:@""] autorelease];
 	requestThatShouldFail = [[ASIHTTPRequest alloc] initWithURL:url];
-	[networkQueue addOperation:requestThatShouldFail];
+	[networkQueue addRequest:requestThatShouldFail];
 
 	[networkQueue go];
 	
-	[networkQueue waitUntilAllOperationsAreFinished];
+	[networkQueue waitUntilAllRequestsAreFinished];
 	
 	
 	[requestThatShouldFail release];	
@@ -513,7 +509,7 @@ IMPORTANT
 	url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/basic-authentication"] autorelease];
 	ASIHTTPRequest *request = [[[ASIHTTPRequest alloc] initWithURL:url] autorelease];
 	[request setUserInfo:[NSDictionary dictionaryWithObject:@"Don't bother" forKey:@"Shall I return any credentials?"]];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	
 	[networkQueue go];
 	
@@ -538,7 +534,7 @@ IMPORTANT
 	[request setUserInfo:[NSDictionary dictionaryWithObject:@"Don't bother" forKey:@"Shall I return any credentials?"]];
 	[request setUsername:@"secret_username"];
 	[request setPassword:@"secret_password"];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	
 	[networkQueue go];
 	
@@ -559,7 +555,7 @@ IMPORTANT
 	[networkQueue setRequestDidFinishSelector:@selector(queueFinished:)];
 	
 	ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/basic-authentication"]];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	
 	[networkQueue go];
 	
@@ -648,10 +644,10 @@ IMPORTANT
 	NSURL *url;	
 	url = [[[NSURL alloc] initWithString:@"http://allseeing-i.com:9999/i/logo.png"] autorelease];
 	requestThatShouldFail = [[ASIHTTPRequest alloc] initWithURL:url];
-	[networkQueue addOperation:requestThatShouldFail];
+	[networkQueue addRequest:requestThatShouldFail];
 	
 	[networkQueue go];
-	[networkQueue waitUntilAllOperationsAreFinished];
+	[networkQueue waitUntilAllRequestsAreFinished];
     
 	// Give the queue time to notify us
 	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1]];
@@ -683,7 +679,7 @@ IMPORTANT
 	[request setDownloadDestinationPath:downloadPath];
 	[request setTemporaryFileDownloadPath:temporaryPath];
 	[request setAllowResumeForFileDownloads:YES];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	[networkQueue go];
 	 
 	// Let the download run for a second, which hopefully won't be enough time to grab this file. If you have a super fast connection, this test may fail, serves you right for being so smug. :)
@@ -715,7 +711,7 @@ IMPORTANT
 	[request setTemporaryFileDownloadPath:temporaryPath];
 	[request setAllowResumeForFileDownloads:YES];
 	
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 
 	[networkQueue go];
 
@@ -747,7 +743,7 @@ IMPORTANT
 	[request setDownloadDestinationPath:downloadPath];
 	[request setTemporaryFileDownloadPath:temporaryPath];
 	[request setAllowResumeForFileDownloads:YES];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	[networkQueue go];
 	
 	// Let the download run for 3 seconds
@@ -755,7 +751,7 @@ IMPORTANT
 	while (!complete) {
 		[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
 	}
-	[networkQueue cancelAllOperations];
+	[networkQueue cancelAllRequests];
 	
 	success = ([[NSFileManager defaultManager] fileExistsAtPath:temporaryPath]);
 	GHAssertTrue(success,@"Temporary download file doesn't exist");	
@@ -776,20 +772,20 @@ IMPORTANT
 
 
 
-// Not strictly an ASINetworkQueue test, but queue related
 // As soon as one request finishes or fails, we'll cancel the others and ensure that no requests are both finished and failed
 - (void)testImmediateCancel
 {
 	[self setFailedRequests:[NSMutableArray array]];
 	[self setFinishedRequests:[NSMutableArray array]];
-	[self setImmediateCancelQueue:[[[NSOperationQueue alloc] init] autorelease]];
+	[self setImmediateCancelQueue:[ASINetworkQueue queue]];
+	 [[self immediateCancelQueue] setShouldCancelAllRequestsOnFailure:NO];
 	int i;
 	for (i=0; i<10; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com"]];
 		[request setDelegate:self];
 		[request setDidFailSelector:@selector(immediateCancelFail:)];
 		[request setDidFinishSelector:@selector(immediateCancelFinish:)];
-		[[self immediateCancelQueue] addOperation:request];
+		[[self immediateCancelQueue] addRequest:request];
 	}
 	
 }
@@ -806,7 +802,7 @@ IMPORTANT
 	if ([[self failedRequests] count]+[[self finishedRequests] count] > 25) {
 		GHFail(@"We got more than 25 delegate fail/finish calls - this shouldn't happen!");
 	}
-	[[self immediateCancelQueue] cancelAllOperations];
+	[[self immediateCancelQueue] cancelAllRequests];
 
 }
 
@@ -822,7 +818,7 @@ IMPORTANT
 	if ([[self failedRequests] count]+[[self finishedRequests] count] > 25) {
 		GHFail(@"We got more than 25 delegate fail/finish calls - this shouldn't happen!");
 	}
-	[[self immediateCancelQueue] cancelAllOperations];
+	[[self immediateCancelQueue] cancelAllRequests];
 }
 
 // Ensure class convenience constructor returns an instance of our subclass
@@ -837,7 +833,7 @@ IMPORTANT
 // Test releasing the queue in a couple of ways - the purpose of these tests is really just to ensure we don't crash
 - (void)testQueueReleaseOnRequestComplete
 {
-	[[self releaseTestQueue] cancelAllOperations];
+	[[self releaseTestQueue] cancelAllRequests];
 	[self setReleaseTestQueue:[ASINetworkQueue queue]];
 	int i;
 	for (i=0; i<5; i++) {
@@ -845,7 +841,7 @@ IMPORTANT
 		[request setDelegate:self];
 		[request setDidFailSelector:@selector(fail:)];
 		[request setDidFinishSelector:@selector(finish:)];
-		[[self releaseTestQueue] addOperation:request];
+		[[self releaseTestQueue] addRequest:request];
 	}
 }
 
@@ -865,13 +861,13 @@ IMPORTANT
 
 - (void)testQueueReleaseOnQueueComplete
 {
-	[[self releaseTestQueue] cancelAllOperations];
+	[[self releaseTestQueue] cancelAllRequests];
 	[self setReleaseTestQueue:[ASINetworkQueue queue]];
 	[[self releaseTestQueue] setDelegate:self];
 	int i;
 	for (i=0; i<5; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com"]];
-		[[self releaseTestQueue] addOperation:request];
+		[[self releaseTestQueue] addRequest:request];
 	}
 }
 
@@ -896,7 +892,7 @@ IMPORTANT
 	for (i=0; i<5; i++) {
 		// This image is around 18KB in size, for 90KB total download size
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/i/logo.png"]];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}
 	
 	NSDate *date = [NSDate date];
@@ -924,7 +920,7 @@ IMPORTANT
 	
 	for (i=0; i<5; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/i/logo.png"]];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}
 	
 	date = [NSDate date];
@@ -961,7 +957,7 @@ IMPORTANT
 	for (i=0; i<10; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ignore"]];
 		[request appendPostData:data];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}
 	
 	NSDate *date = [NSDate date];
@@ -989,7 +985,7 @@ IMPORTANT
 	for (i=0; i<10; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ignore"]];
 		[request appendPostData:data];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}
 	
 	date = [NSDate date];
@@ -1010,13 +1006,13 @@ IMPORTANT
 - (void)throttleFail:(ASIHTTPRequest *)request
 {
 	GHAssertTrue(NO,@"Request failed, cannot continue with this test");
-	[[request queue] cancelAllOperations];
+	[[request queue] cancelAllRequests];
 }
 
 // Test for a bug that used to exist where the temporary file used to store the request body would be removed when authentication failed
 - (void)testPOSTWithAuthentication
 {
-	[[self postQueue] cancelAllOperations];
+	[[self postQueue] cancelAllRequests];
 	[self setPostQueue:[ASINetworkQueue queue]];
 	[[self postQueue] setRequestDidFinishSelector:@selector(postDone:)];
 	[[self postQueue] setDelegate:self];
@@ -1024,7 +1020,7 @@ IMPORTANT
 	ASIFormDataRequest *request = [ASIFormDataRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/Tests/post_with_authentication"]];
 	[request setPostValue:@"This is the first item" forKey:@"first"];
 	[request setData:[@"This is the second item" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"second"];
-	[[self postQueue] addOperation:request];
+	[[self postQueue] addRequest:request];
 	[[self postQueue] go];
 }
 
@@ -1036,7 +1032,7 @@ IMPORTANT
 
 - (void)testDelegateAuthenticationFailure
 {
-	[[self postQueue] cancelAllOperations];
+	[[self postQueue] cancelAllRequests];
 	[self setPostQueue:[ASINetworkQueue queue]];
 	[[self postQueue] setRequestDidFinishSelector:@selector(postDone:)];
 	[[self postQueue] setDelegate:self];
@@ -1045,7 +1041,7 @@ IMPORTANT
 	[request setPostValue:@"This is the first item" forKey:@"first"];
 	[request setData:[@"This is the second item" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"second"];
 	[request setUserInfo:[NSDictionary dictionaryWithObject:@"delegate-auth-failure" forKey:@"test"]];
-	[[self postQueue] addOperation:request];
+	[[self postQueue] addRequest:request];
 	[[self postQueue] go];
 }
 
@@ -1053,7 +1049,7 @@ IMPORTANT
 {
 	authenticationPromptCount = 0;
 	[ASIHTTPRequest clearSession];
-	[[self testNTLMQueue] cancelAllOperations];
+	[[self testNTLMQueue] cancelAllRequests];
 	[self setTestNTLMQueue:[ASINetworkQueue queue]];
 	
 	ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/pretend-ntlm-handshake"]];
@@ -1064,7 +1060,7 @@ IMPORTANT
 	[[self testNTLMQueue] setRequestDidFinishSelector:@selector(ntlmDone:)];
 	[[self testNTLMQueue] setRequestDidFailSelector:@selector(ntlmFailed:)];
 	[[self testNTLMQueue] setDelegate:self];	
-	[[self testNTLMQueue] addOperation:request];
+	[[self testNTLMQueue] addRequest:request];
 	[[self testNTLMQueue] go];	
 }
 
@@ -1095,10 +1091,10 @@ IMPORTANT
 	ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://999.123"]];
 	[request setDelegate:self];
 	[request setDidFailSelector:@selector(HEADFail:)];
-	[queue addOperation:request];
+	[queue addRequest:request];
 	[queue go];
 	
-	[queue waitUntilAllOperationsAreFinished];
+	[queue waitUntilAllRequestsAreFinished];
 	
 	// Hope the request gets around to notifying the delegate in time
 	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
@@ -1143,7 +1139,7 @@ IMPORTANT
 	NSUInteger i;
 	for (i=0; i<10; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://there-is-no-spoon.allseeing-i.com"]];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}
 	
 	[networkQueue go];
@@ -1164,11 +1160,11 @@ IMPORTANT
 	networkQueue = [[ASINetworkQueue queue] retain];
 	[networkQueue setDelegate:self];
 	[networkQueue setQueueDidFinishSelector:@selector(queueFailureFinishCallOnce:)];
-	[networkQueue setMaxConcurrentOperationCount:1];
+	[networkQueue setMaxConcurrentRequestCount:1];
 	
 	for (i=0; i<10; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://there-is-no-spoon.allseeing-i.com"]];
-		[networkQueue addOperation:request];
+		[networkQueue addRequest:request];
 	}
 	
 	[networkQueue go];

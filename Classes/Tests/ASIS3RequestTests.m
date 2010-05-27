@@ -468,7 +468,7 @@ static NSString *bucket = @"";
 	success = ([[listRequest objects] count] == 5);
 	GHAssertTrue(success,@"List did not contain all files");
 	
-	// Please don't use an autoreleased operation queue with waitUntilAllOperationsAreFinished in your own code unless you're writing a test like this one
+	// Please don't use an autoreleased operation queue with waitUntilAllRequestsAreFinished in your own code unless you're writing a test like this one
 	// (The end result is no better than using synchronous requests) thx - Ben :)
 	ASINetworkQueue *queue = [[[ASINetworkQueue alloc] init] autorelease];
 	
@@ -480,10 +480,10 @@ static NSString *bucket = @"";
 		ASIS3ObjectRequest *request = [object GETRequest];
 		[request setAccessKey:accessKey];
 		[request setSecretAccessKey:secretAccessKey];
-		[queue addOperation:request];
+		[queue addRequest:request];
 	}
 	[queue go];
-	[queue waitUntilAllOperationsAreFinished];
+	[queue waitUntilAllRequestsAreFinished];
 	
 	
 	// Test uploading new files for all the items
@@ -497,11 +497,11 @@ static NSString *bucket = @"";
 		ASIS3Request *request = [object PUTRequestWithFile:oldFilePath];
 		[request setAccessKey:accessKey];
 		[request setSecretAccessKey:secretAccessKey];
-		[queue addOperation:request];
+		[queue addRequest:request];
 		i++;
 	}
 	[queue go];
-	[queue waitUntilAllOperationsAreFinished];
+	[queue waitUntilAllRequestsAreFinished];
 	
 	
 	// Test deleting all the items
@@ -514,11 +514,11 @@ static NSString *bucket = @"";
 		ASIS3ObjectRequest *request = [object DELETERequest];
 		[request setAccessKey:accessKey];
 		[request setSecretAccessKey:secretAccessKey];
-		[queue addOperation:request];
+		[queue addRequest:request];
 		i++;
 	}
 	[queue go];
-	[queue waitUntilAllOperationsAreFinished];
+	[queue waitUntilAllRequestsAreFinished];
 	
 	// Grab the list again, it should be empty now
 	listRequest = [ASIS3BucketRequest requestWithBucket:bucket];
@@ -600,7 +600,7 @@ static NSString *bucket = @"";
 - (void)s3RequestFailed:(ASIHTTPRequest *)request
 {
 	GHFail(@"Request failed - cannot continue with test");
-	[[self networkQueue] cancelAllOperations];
+	[[self networkQueue] cancelAllRequests];
 }
 
 - (void)s3QueueFinished:(ASINetworkQueue *)queue
@@ -620,14 +620,14 @@ static NSString *bucket = @"";
 
 	// Upload objects
 	progress = 0;	
-	[[self networkQueue] cancelAllOperations];
+	[[self networkQueue] cancelAllRequests];
 	[self setNetworkQueue:[ASINetworkQueue queue]];
 	[[self networkQueue] setDelegate:self];
 	[[self networkQueue] setRequestDidFailSelector:@selector(s3RequestFailed:)];
 	[[self networkQueue] setQueueDidFinishSelector:@selector(s3QueueFinished:)];	
 	[[self networkQueue] setUploadProgressDelegate:self];
 	[[self networkQueue] setShowAccurateProgress:YES];
-	[[self networkQueue] setMaxConcurrentOperationCount:1];
+	[[self networkQueue] setMaxConcurrentRequestCount:1];
 	
 	int i;	
 	for (i=0; i<5; i++) {
@@ -640,15 +640,15 @@ static NSString *bucket = @"";
 		[s3Request setTimeOutSeconds:20];
 		[s3Request setNumberOfTimesToRetryOnTimeout:3];
 		[s3Request setMimeType:@"image/png"];
-		[[self networkQueue] addOperation:s3Request];
+		[[self networkQueue] addRequest:s3Request];
 	}
 	[[self networkQueue] go];
-	[[self networkQueue] waitUntilAllOperationsAreFinished];
+	[[self networkQueue] waitUntilAllRequestsAreFinished];
 
 	
 	// Download objects
 	progress = 0;	
-	[[self networkQueue] cancelAllOperations];
+	[[self networkQueue] cancelAllRequests];
 	[self setNetworkQueue:[ASINetworkQueue queue]];
 	[[self networkQueue] setDelegate:self];
 	[[self networkQueue] setRequestDidFailSelector:@selector(s3RequestFailed:)];
@@ -665,17 +665,17 @@ static NSString *bucket = @"";
 		[s3Request setAccessKey:accessKey];
 		NSString *downloadPath = [[self filePathForTemporaryTestFiles] stringByAppendingPathComponent:[NSString stringWithFormat:@"%hi.jpg",i+1]];
 		[s3Request setDownloadDestinationPath:downloadPath];
-		[[self networkQueue] addOperation:s3Request];
+		[[self networkQueue] addRequest:s3Request];
 	}
 	
 	[[self networkQueue] go];
-	[[self networkQueue] waitUntilAllOperationsAreFinished];
+	[[self networkQueue] waitUntilAllRequestsAreFinished];
 	progress = 0;
 	
 	// Delete objects
 	progress = 0;
 	
-	[[self networkQueue] cancelAllOperations];
+	[[self networkQueue] cancelAllRequests];
 	[self setNetworkQueue:[ASINetworkQueue queue]];
 	[[self networkQueue] setDelegate:self];
 	[[self networkQueue] setRequestDidFailSelector:@selector(s3RequestFailed:)];
@@ -689,10 +689,10 @@ static NSString *bucket = @"";
 		ASIS3ObjectRequest *s3Request = [ASIS3ObjectRequest DELETERequestWithBucket:bucket key:key];
 		[s3Request setSecretAccessKey:secretAccessKey];
 		[s3Request setAccessKey:accessKey];
-		[[self networkQueue] addOperation:s3Request];
+		[[self networkQueue] addRequest:s3Request];
 	}
 	[[self networkQueue] go];
-	[[self networkQueue] waitUntilAllOperationsAreFinished];
+	[[self networkQueue] waitUntilAllRequestsAreFinished];
 
 }
 	

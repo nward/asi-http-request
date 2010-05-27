@@ -10,7 +10,7 @@
 #import "ASIFormDataRequest.h"
 #import "ASINetworkQueue.h"
 #import "ASIDownloadCache.h"
-#import "ASINGNetworkQueue.h"
+#import "ASINetworkQueue.h"
 
 @interface AppDelegate ()
 - (void)updateBandwidthUsageIndicator;
@@ -144,21 +144,21 @@
 	[request setDownloadProgressDelegate:imageProgress1];
 	[request setDidFinishSelector:@selector(imageFetch1Complete:)];
 	[request setDelegate:self];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	
 	request = [[[ASIHTTPRequest alloc] initWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/images/medium-image.jpg"]] autorelease];
 	[request setDownloadDestinationPath:[[[[NSBundle mainBundle] bundlePath] stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"2.png"]];
 	[request setDownloadProgressDelegate:imageProgress2];
 	[request setDidFinishSelector:@selector(imageFetch2Complete:)];
 	[request setDelegate:self];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	
 	request = [[[ASIHTTPRequest alloc] initWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/images/large-image.jpg"]] autorelease];
 	[request setDownloadDestinationPath:[[[[NSBundle mainBundle] bundlePath] stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"3.png"]];
 	[request setDownloadProgressDelegate:imageProgress3];
 	[request setDidFinishSelector:@selector(imageFetch3Complete:)];
 	[request setDelegate:self];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	
 	
 	[networkQueue go];
@@ -297,7 +297,7 @@
 	[request setFile:path forKey:@"file"];
 	
 
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	[networkQueue go];
 }
 
@@ -313,18 +313,18 @@
 
 - (IBAction)reloadTableData:(id)sender
 {
-	[[self tableQueue] cancel];
+	[[self tableQueue] cancelAllRequests];
 	[self setRowData:[NSMutableArray array]];
 	[tableView reloadData];
 
-	[self setTableQueue:[ASINGNetworkQueue queue]];
+	[self setTableQueue:[ASINetworkQueue queue]];
 	
 	ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/table-row-data.xml"]];
 	[request setDownloadCache:[ASIDownloadCache sharedCache]];
 	[request setDidFinishSelector:@selector(tableViewDataFetchFinished:)];
 	[request setDelegate:self];
 	[[self tableQueue] addRequest:request];
-	[[self tableQueue] start];
+	[[self tableQueue] go];
 }
 
 - (void)tableViewDataFetchFailed:(ASIHTTPRequest *)request
@@ -370,7 +370,6 @@
 
 - (void)rowImageDownloadFinished:(ASIHTTPRequest *)request
 {
-	NSLog(@"ook");
 	NSImage *image = [[[NSImage alloc] initWithData:[request responseData]] autorelease];
 	[(NSMutableDictionary *)[request userInfo] setObject:image forKey:@"image"];
 	[tableView reloadData]; // Not efficient, but I hate table view programming :)

@@ -24,7 +24,7 @@
 	[imageView2 setImage:nil];
 	[imageView3 setImage:nil];
 	
-	[networkQueue cancelAllOperations];
+	[networkQueue cancelAllRequests];
 	[networkQueue setDownloadProgressDelegate:progressIndicator];
 	[networkQueue setRequestDidFinishSelector:@selector(imageFetchComplete:)];
 	[networkQueue setShowAccurateProgress:[accurateProgress isOn]];
@@ -33,15 +33,15 @@
 	ASIHTTPRequest *request;
 	request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/images/small-image.jpg"]];
 	[request setDownloadDestinationPath:[[NSHomeDirectory() stringByAppendingPathComponent:@"Documents"] stringByAppendingPathComponent:@"1.png"]];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	
 	request = [[[ASIHTTPRequest alloc] initWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/images/medium-image.jpg"]] autorelease];
 	[request setDownloadDestinationPath:[[NSHomeDirectory() stringByAppendingPathComponent:@"Documents"] stringByAppendingPathComponent:@"2.png"]];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	
 	request = [[[ASIHTTPRequest alloc] initWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/images/large-image.jpg"]] autorelease];
 	[request setDownloadDestinationPath:[[NSHomeDirectory() stringByAppendingPathComponent:@"Documents"] stringByAppendingPathComponent:@"3.png"]];
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	
 	[networkQueue go];
 }

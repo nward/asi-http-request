@@ -20,7 +20,7 @@
 
 - (IBAction)performLargeUpload:(id)sender
 {
-	[networkQueue cancelAllOperations];
+	[networkQueue cancelAllRequests];
 	[networkQueue setShowAccurateProgress:YES];
 	[networkQueue setUploadProgressDelegate:progressIndicator];
 	[networkQueue setDelegate:self];
@@ -42,7 +42,7 @@
 		[request setFile:path forKey:[NSString stringWithFormat:@"file-%hi",i]];
 	}
 	
-	[networkQueue addOperation:request];
+	[networkQueue addRequest:request];
 	[networkQueue go];
 }
 

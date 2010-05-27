@@ -11,7 +11,7 @@
 /*
 IMPORTANT
 Code that appears in these tests is not for general purpose use. 
-You should not use [networkQueue waitUntilAllOperationsAreFinished] or [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]] in your own software.
+You should not use [networkQueue waitUntilAllRequestsAreFinished] or [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]] in your own software.
 They are used here to force a queue to operate synchronously to simplify writing the tests.
 IMPORTANT
 */
@@ -28,7 +28,7 @@ IMPORTANT
 	int addedRequests;
 	
 	
-	NSOperationQueue *immediateCancelQueue;
+	ASINetworkQueue *immediateCancelQueue;
 	NSMutableArray *failedRequests;
 	NSMutableArray *finishedRequests;
 	
@@ -72,7 +72,7 @@ IMPORTANT
 - (void)testDelegateAuthenticationCredentialsReuse;
 - (void)testPOSTWithAuthentication;
 - (void)testHEADFailure;
-@property (retain) NSOperationQueue *immediateCancelQueue;
+@property (retain) ASINetworkQueue *immediateCancelQueue;
 @property (retain) NSMutableArray *failedRequests;
 @property (retain) NSMutableArray *finishedRequests;
 @property (retain) ASINetworkQueue *releaseTestQueue;

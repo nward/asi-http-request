@@ -39,27 +39,27 @@ IMPORTANT
 	ASINetworkQueue *queue = [ASINetworkQueue queue];
 	
 	// Increase the risk of this crash
-	[queue setMaxConcurrentOperationCount:25];
+	[queue setMaxConcurrentRequestCount:25];
 	int i;
 	for (i=0; i<100; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://127.0.0.1"]];
-		[queue addOperation:request];
+		[queue addRequest:request];
 	}
 	[queue go];
 	[NSThread sleepUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
-	[queue cancelAllOperations];
+	[queue cancelAllRequests];
 	
 	// Run the test again with requests running on a background thread
 	queue = [ASINetworkQueue queue];
 
-	[queue setMaxConcurrentOperationCount:25];
+	[queue setMaxConcurrentRequestCount:25];
 	for (i=0; i<100; i++) {
 		ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://127.0.0.1"]];
-		[queue addOperation:request];
+		[queue addRequest:request];
 	}
 	[queue go];
 	[NSThread sleepUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
-	[queue cancelAllOperations];
+	[queue cancelAllRequests];
 	
 }
 
