@@ -128,6 +128,11 @@
 
 - (IBAction)fetchThreeImages:(id)sender
 {
+	[networkQueue cancelAllRequests];
+	NSLog(@"%i",[networkQueue retainCount]);
+	[networkQueue release];
+	networkQueue = [[ASINetworkQueue alloc] init];
+	
 	[imageView1 setImage:nil];
 	[imageView2 setImage:nil];
 	[imageView3 setImage:nil];

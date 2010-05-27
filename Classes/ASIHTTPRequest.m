@@ -23,7 +23,7 @@
 #import "ASINetworkQueue.h"
 
 // Automatically set on build
-NSString *ASIHTTPRequestVersion = @"v1.6.2-28 2010-05-27";
+NSString *ASIHTTPRequestVersion = @"v1.6.2-29 2010-05-27";
 
 NSString* const NetworkRequestErrorDomain = @"ASIHTTPRequestErrorDomain";
 
