@@ -16,6 +16,12 @@ enum _ASINetworkQueueState {
     RequestsInProgressASINetworkQueueState = 2
 };
 
+static NSThread *networkThread = nil;
+static NSConditionLock *queueStateLock;
+static NSTimer *statusTimer = nil;
+static NSMutableArray *allRunningRequests = nil;
+static NSLock *modifyQueueLock = nil;
+
 @interface ASINetworkQueue ()
 
 - (void)startRequest:(ASIHTTPRequest *)requestToRun;
@@ -25,18 +31,73 @@ enum _ASINetworkQueueState {
 @property (retain, nonatomic) NSMutableArray *queuedRequests;
 @property (retain, nonatomic) NSMutableArray *runningRequests;
 @property (retain, nonatomic) NSRecursiveLock *requestLock;
-@property (retain, nonatomic) NSThread *thread;
 @property (retain, nonatomic) NSTimer *requestStatusTimer;
-@property (retain, nonatomic) NSConditionLock *inProgressLock;
 @end
 
 @implementation ASINetworkQueue
 
++ (void)initialize
+{
+	if (self == [ASINetworkQueue class]) {
+		networkThread = [[NSThread alloc] initWithTarget:self selector:@selector(runRequests) object:nil];
+		queueStateLock = [[NSConditionLock alloc] init];
+		modifyQueueLock = [[NSRecursiveLock alloc] init];
+		allRunningRequests = [[NSMutableArray array] retain];
+		[networkThread start];
+	}
+}
+
++ (void)runRequests
+{
+	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+	while (1) {
+		CFRunLoopRun();
+		[queueStateLock lockWhenCondition:RequestsQueuedASINetworkQueueState];
+		[queueStateLock unlock];
+	}
+	[pool release];
+}
+
++ (void)startStatusTimer
+{
+	if (!statusTimer) {
+		statusTimer = [[NSTimer scheduledTimerWithTimeInterval:0.25 target:self selector:@selector(updateRequestStatus:) userInfo:nil repeats:YES] retain];
+	}
+}
+				   
++ (void)stopStatusTimer
+{
+	[statusTimer invalidate];
+	[statusTimer release];
+	statusTimer = nil;
+}
+
++ (void)updateRequestStatus:(NSTimer *)timer
+{
+	[modifyQueueLock lock];
+	NSUInteger i;
+	// updateStatus may remove the request from this list
+	for (i=0; i<[allRunningRequests count]; i++) {
+		[[allRunningRequests objectAtIndex:i] updateStatus];
+	}
+	[modifyQueueLock unlock];
+}
+
++ (void)performRequest:(ASIHTTPRequest *)requestToRun
+{
+	[queueStateLock lock];
+	[queueStateLock unlockWithCondition:RequestsInProgressASINetworkQueueState];
+	[modifyQueueLock lock];
+	[allRunningRequests addObject:requestToRun];
+	[modifyQueueLock unlock];
+	[self startStatusTimer];
+	[requestToRun main];
+}
+
+
 - (id)init
 {
 	self = [super init];
-	[self setInProgressLock:[[[NSConditionLock alloc] init] autorelease]];
-	[self setRequestLock:[[[NSRecursiveLock alloc] init] autorelease]];
 	[self setQueuedRequests:[NSMutableArray array]];
 	[self setRunningRequests:[NSMutableArray array]];
 	[self setSuspended:YES];
@@ -52,13 +113,8 @@ enum _ASINetworkQueueState {
 
 - (void)dealloc
 {
-	[inProgressLock release];
-	[requestStatusTimer invalidate];
-	[requestStatusTimer release];
 	[queuedRequests release];
 	[runningRequests release];
-	[requestLock release];
-	[thread release];
 	[super dealloc];
 }
 
@@ -80,7 +136,7 @@ enum _ASINetworkQueueState {
 
 - (void)addRequest:(ASIHTTPRequest *)request
 {
-	[[self requestLock] lock];
+	[modifyQueueLock lock];
 	if ([self showAccurateProgress]) {
 		
 		// Force the request to build its body (this may change requestMethod)
@@ -122,18 +178,19 @@ enum _ASINetworkQueueState {
 	[request setQueue:self];
 	[[self queuedRequests] addObject:request];
 	[self startMoreRequests];
-	[[self requestLock] unlock];
+	[modifyQueueLock unlock];
 }
 
 - (void)requestFailed:(ASIHTTPRequest *)request
 {
-	[[self requestLock] lock];
+	[modifyQueueLock lock];
 	
 	if ([self requestDidFailSelector] && ![request mainRequest]) {
 		[[self delegate] performSelectorOnMainThread:[self requestDidFailSelector] withObject:request waitUntilDone:NO];
 	}
 	[[self queuedRequests] removeObject:request];
 	[[self runningRequests] removeObject:request];
+	[allRunningRequests removeObject:request];
 	if ([self shouldCancelAllRequestsOnFailure] && ([[self queuedRequests] count] || [[self runningRequests] count])) {
 		[self cancelAllRequests];
 	}
@@ -144,14 +201,15 @@ enum _ASINetworkQueueState {
 		}
 		
 		[self cancelAllRequests];
+		CFRunLoopStop(CFRunLoopGetCurrent());
 	}
 	
-	[[self requestLock] unlock];	
+	[modifyQueueLock unlock];	
 }
 
 - (void)requestFinished:(ASIHTTPRequest *)request
 {
-	[[self requestLock] lock];
+	[modifyQueueLock lock];
 	
 	if ([self requestDidFinishSelector] && ![request mainRequest]) {
 		[[self delegate] performSelectorOnMainThread:[self requestDidFinishSelector] withObject:request waitUntilDone:NO];
@@ -159,6 +217,7 @@ enum _ASINetworkQueueState {
 	
 	[self startMoreRequests];
 	[[self runningRequests] removeObject:request];
+	[allRunningRequests removeObject:request];
 	
 	
 	if (![[self queuedRequests] count] && ![[self runningRequests] count]) {
@@ -168,10 +227,11 @@ enum _ASINetworkQueueState {
 		}
 		
 		[self cancelAllRequests];
+		CFRunLoopStop(CFRunLoopGetCurrent());
 
 	}
 	
-	[[self requestLock] unlock];
+	[modifyQueueLock unlock];
 }
 
 - (BOOL)startMoreRequests
@@ -201,50 +261,29 @@ enum _ASINetworkQueueState {
 	
 - (void)startRequest:(ASIHTTPRequest *)requestToRun
 {
-	[[self requestLock] lock];
+	[modifyQueueLock lock];
 	if (![self isSuspended]) {
 		[[self runningRequests] addObject:requestToRun];
 		[[self queuedRequests] removeObject:requestToRun];
-		[[self inProgressLock] lock];
-		[[self inProgressLock] unlockWithCondition:RequestsQueuedASINetworkQueueState];
-		if (![self thread]) {
-			[self setThread:[[[NSThread alloc] initWithTarget:self selector:@selector(mainLoop) object:nil] autorelease]];
-			[[self thread] start];
-		}
-		[self performSelector:@selector(performRequest:) onThread:[self thread] withObject:requestToRun waitUntilDone:NO];
+		[queueStateLock lock];
+		[queueStateLock unlockWithCondition:RequestsQueuedASINetworkQueueState];
+		[[self class] performSelector:@selector(performRequest:) onThread:networkThread withObject:requestToRun waitUntilDone:NO];
 	}
-	[[self requestLock] unlock];
-}
-
-
-- (void)performRequest:(ASIHTTPRequest *)requestToRun
-{
-	[[self inProgressLock] lock];
-	[[self inProgressLock] unlockWithCondition:RequestsInProgressASINetworkQueueState];
-	[requestToRun main];
-}
-		 
-- (void)updateRequestStatus:(NSTimer *)timer
-{
-	[[self requestLock] lock];
-	for (ASIHTTPRequest *request in [[[self runningRequests] copy] autorelease]) {
-		[request updateStatus];
-	}
-	[[self requestLock] unlock];
+	[modifyQueueLock unlock];
 }
 
 - (void)go
 {
 	[self setSuspended:NO];
 	if ([self startMoreRequests]) {
-		[[self inProgressLock] lockWhenCondition:1];
-		[[self inProgressLock] unlock];	
+		[queueStateLock lockWhenCondition:1];
+		[queueStateLock unlock];	
 	}
 }
 
 - (void)cancelAllRequests
 {
-	[[self requestLock] lock];
+	[modifyQueueLock lock];
 	for (ASIHTTPRequest *request in [[[self queuedRequests] copy] autorelease]) {
 		[request cancel];
 	}
@@ -256,38 +295,13 @@ enum _ASINetworkQueueState {
 	[self setBytesDownloadedSoFar:0];
 	[self setTotalBytesToDownload:0];
 	
-	if ([self thread] && [[self thread] isExecuting]) {
-		[self performSelector:@selector(stopThread) onThread:[self thread] withObject:nil waitUntilDone:YES];
-	}
-	
-	[[self inProgressLock] lock];
-	[[self inProgressLock] unlockWithCondition:QueueEmptyASINetworkQueueState];	
-
-	[[self requestLock] unlock];	
-}
-
-- (void)stopThread
-{
 	[[self requestStatusTimer] invalidate];
 	[self setRequestStatusTimer:nil];
-	CFRunLoopStop(CFRunLoopGetCurrent());
-	[self setThread:nil];
+	
+	[queueStateLock lock];
+	[queueStateLock unlockWithCondition:QueueEmptyASINetworkQueueState];	
 
-}
-
-- (void)mainLoop
-{
-	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
-	if (![self requestStatusTimer]) {
-		[self setRequestStatusTimer:[NSTimer scheduledTimerWithTimeInterval:0.25 target:self selector:@selector(updateRequestStatus:) userInfo:nil repeats:YES]];
-	}
-	while (1) {
-		CFRunLoopRunInMode(kCFRunLoopDefaultMode, FLT_MAX, NO);
-		if (![self thread]) {
-			break;
-		}
-	}
-	[pool release];
+	[modifyQueueLock unlock];	
 }
 
 - (void)request:(ASIHTTPRequest *)request didReceiveBytes:(long long)bytes
@@ -367,8 +381,8 @@ enum _ASINetworkQueueState {
 
 - (void)waitUntilAllRequestsAreFinished
 {
-	[[self inProgressLock] lockWhenCondition:QueueEmptyASINetworkQueueState];
-	[[self inProgressLock] unlock];	
+	[queueStateLock lockWhenCondition:QueueEmptyASINetworkQueueState];
+	[queueStateLock unlock];	
 	NSLog(@"foo");
 }
 
@@ -434,7 +448,6 @@ enum _ASINetworkQueueState {
 @synthesize queuedRequests;
 @synthesize runningRequests;
 @synthesize requestLock;
-@synthesize thread;
 @synthesize requestStatusTimer;
 @synthesize suspended;
 @synthesize bytesUploadedSoFar;
@@ -453,5 +466,4 @@ enum _ASINetworkQueueState {
 @synthesize showAccurateProgress;
 @synthesize userInfo;
 @synthesize maxConcurrentRequestCount;
-@synthesize inProgressLock;
 @end

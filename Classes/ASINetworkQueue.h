@@ -23,12 +23,6 @@
 	// Mediates access to the request arrays
 	NSRecursiveLock *requestLock;
 	
-	// Used for waitUntilAllRequestsAreFinished
-	NSConditionLock *inProgressLock;
-	
-	// A reference to the thread this queue uses
-	NSThread *thread;
-	
 	// This timer is responsible for updating the progress of running requests
 	NSTimer *requestStatusTimer;
 	

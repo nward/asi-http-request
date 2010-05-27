@@ -129,7 +129,6 @@
 - (IBAction)fetchThreeImages:(id)sender
 {
 	[networkQueue cancelAllRequests];
-	NSLog(@"%i",[networkQueue retainCount]);
 	[networkQueue release];
 	networkQueue = [[ASINetworkQueue alloc] init];
 	
