@@ -23,7 +23,7 @@
 #import "ASINetworkQueue.h"
 
 // Automatically set on build
-NSString *ASIHTTPRequestVersion = @"v1.6.2-27 2010-05-27";
+NSString *ASIHTTPRequestVersion = @"v1.6.2-28 2010-05-27";
 
 NSString* const NetworkRequestErrorDomain = @"ASIHTTPRequestErrorDomain";
 
@@ -516,8 +516,8 @@ static unsigned int runningRequestCount = 0;
 #if DEBUG_REQUEST_STATUS || DEBUG_THROTTLING
 	NSLog(@"Starting synchronous request %@",self);
 #endif
-	[self setRunLoopMode:ASIHTTPRequestRunLoopMode];
 	@try {	
+		[self setRunLoopMode:ASIHTTPRequestRunLoopMode];
 		if (![self isCancelled] && ![self complete]) {
 			[self setIsSynchronous:YES];
 			[self main];

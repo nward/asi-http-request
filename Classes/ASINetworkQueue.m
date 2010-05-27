@@ -14,6 +14,7 @@
 
 - (void)startRequest:(ASIHTTPRequest *)requestToRun;
 - (void)resetProgressDelegate:(id)progressDelegate;
+- (BOOL)startMoreRequests;
 
 @property (retain, nonatomic) NSMutableArray *queuedRequests;
 @property (retain, nonatomic) NSMutableArray *runningRequests;
@@ -53,6 +54,7 @@
 	[queuedRequests release];
 	[runningRequests release];
 	[requestLock release];
+	[thread release];
 	[super dealloc];
 }
 
@@ -113,15 +115,9 @@
 	
 	[request setShowAccurateProgress:[self showAccurateProgress]];
 	
-	
-	
 	[request setQueue:self];
-
-	if ([self isSuspended] || ([[self runningRequests] count] >= [self maxConcurrentRequestCount])) {
-		[[self queuedRequests] addObject:request];
-	} else {
-		[self startRequest:request];
-	}
+	[[self queuedRequests] addObject:request];
+	[self startMoreRequests];
 	[[self requestLock] unlock];
 }
 
@@ -132,16 +128,21 @@
 	if ([self requestDidFailSelector] && ![request mainRequest]) {
 		[[self delegate] performSelectorOnMainThread:[self requestDidFailSelector] withObject:request waitUntilDone:NO];
 	}
-	if (![[self queuedRequests] count]) {
-		if ([self queueDidFinishSelector]) {
-			[[self delegate] performSelectorOnMainThread:[self queueDidFinishSelector] withObject:self waitUntilDone:NO];
-		}
-	}
 	[[self queuedRequests] removeObject:request];
 	[[self runningRequests] removeObject:request];
 	if ([self shouldCancelAllRequestsOnFailure] && ([[self queuedRequests] count] || [[self runningRequests] count])) {
 		[self cancelAllRequests];
 	}
+	if (![[self queuedRequests] count] && ![[self runningRequests] count]) {
+		
+		if ([self queueDidFinishSelector]) {
+			[[self delegate] performSelectorOnMainThread:[self queueDidFinishSelector] withObject:self waitUntilDone:NO];
+		}
+		
+		[[self inProgressLock] lock];
+		[[self inProgressLock] unlockWithCondition:0];	
+	}
+	
 	[[self requestLock] unlock];	
 }
 
@@ -153,21 +154,46 @@
 		[[self delegate] performSelectorOnMainThread:[self requestDidFinishSelector] withObject:request waitUntilDone:NO];
 	}
 	
-	if ([[self queuedRequests] count]) {
-		[self startRequest:[[self queuedRequests] objectAtIndex:0]];
-	} else {
+	[self startMoreRequests];
+	[[self runningRequests] removeObject:request];
+	
+	
+	if (![[self queuedRequests] count] && ![[self runningRequests] count]) {
+		
 		if ([self queueDidFinishSelector]) {
 			[[self delegate] performSelectorOnMainThread:[self queueDidFinishSelector] withObject:self waitUntilDone:NO];
 		}
-	}
-	[[self runningRequests] removeObject:request];
-	
-	if (![[self queuedRequests] count] && ![[self runningRequests] count]) {
+		
 		[[self inProgressLock] lock];
 		[[self inProgressLock] unlockWithCondition:0];	
 	}
 	
 	[[self requestLock] unlock];
+}
+
+- (BOOL)startMoreRequests
+{
+	if ([self isSuspended]) {
+		return NO;
+	}
+	BOOL haveStartedRequests = NO;
+	NSUInteger i = 0;
+	while (i < [[self queuedRequests] count] && [[self runningRequests] count] < [self maxConcurrentRequestCount]) {
+		ASIHTTPRequest *requestToStart = [[self queuedRequests] objectAtIndex:i];
+		BOOL HEADRequestInProgress = NO;
+		for (ASIHTTPRequest *request in [self runningRequests]) {
+			if ([request mainRequest] == requestToStart) {
+				HEADRequestInProgress = YES;
+				break;
+			}
+		}
+		if (!HEADRequestInProgress) {
+			[self startRequest:requestToStart];
+			haveStartedRequests = YES;
+		}
+		i++;
+	}
+	return haveStartedRequests;
 }
 	
 - (void)startRequest:(ASIHTTPRequest *)requestToRun
@@ -176,7 +202,7 @@
 	if (![self isSuspended]) {
 		[[self runningRequests] addObject:requestToRun];
 		[[self queuedRequests] removeObject:requestToRun];
-		[self performSelector:@selector(performRequest:) onThread:[self thread] withObject:requestToRun waitUntilDone:NO];	
+		[self performSelector:@selector(performRequest:) onThread:[self thread] withObject:requestToRun waitUntilDone:NO];
 	}
 	[[self requestLock] unlock];
 }
@@ -200,12 +226,11 @@
 
 - (void)go
 {
-	[[self requestLock] lock];
 	[self setSuspended:NO];
-	while ([[self runningRequests] count] < [self maxConcurrentRequestCount] && [[self queuedRequests] count]) {
-		[self startRequest:[[self queuedRequests] objectAtIndex:0]];
+	if ([self startMoreRequests]) {
+		[[self inProgressLock] lockWhenCondition:1];
+		[[self inProgressLock] unlock];	
 	}
-	[[self requestLock] unlock];
 }
 
 - (void)cancelAllRequests
@@ -312,6 +337,7 @@
 {
 	[[self inProgressLock] lockWhenCondition:0];
 	[[self inProgressLock] unlock];	
+	NSLog(@"foo");
 }
 
 - (NSUInteger)requestsCount
@@ -341,6 +367,37 @@
 	return newQueue;
 }
 
+// Since this queue takes over as the delegate for all requests it contains, it should forward authorisation requests to its own delegate
+- (void)authenticationNeededForRequest:(ASIHTTPRequest *)request
+{
+	if ([[self delegate] respondsToSelector:@selector(authenticationNeededForRequest:)]) {
+		[[self delegate] performSelector:@selector(authenticationNeededForRequest:) withObject:request];
+	}
+}
+
+- (void)proxyAuthenticationNeededForRequest:(ASIHTTPRequest *)request
+{
+	if ([[self delegate] respondsToSelector:@selector(proxyAuthenticationNeededForRequest:)]) {
+		[[self delegate] performSelector:@selector(proxyAuthenticationNeededForRequest:) withObject:request];
+	}
+}
+
+
+- (BOOL)respondsToSelector:(SEL)selector
+{
+	if (selector == @selector(authenticationNeededForRequest:)) {
+		if ([[self delegate] respondsToSelector:@selector(authenticationNeededForRequest:)]) {
+			return YES;
+		}
+		return NO;
+	} else if (selector == @selector(proxyAuthenticationNeededForRequest:)) {
+		if ([[self delegate] respondsToSelector:@selector(proxyAuthenticationNeededForRequest:)]) {
+			return YES;
+		}
+		return NO;
+	}
+	return [super respondsToSelector:selector];
+}
 
 @synthesize queuedRequests;
 @synthesize runningRequests;
