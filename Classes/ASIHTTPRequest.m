@@ -23,7 +23,7 @@
 
 
 // Automatically set on build
-NSString *ASIHTTPRequestVersion = @"v1.6.2-12 2010-05-26";
+NSString *ASIHTTPRequestVersion = @"v1.6.2-13 2010-05-27";
 
 NSString* const NetworkRequestErrorDomain = @"ASIHTTPRequestErrorDomain";
 
@@ -124,7 +124,7 @@ static BOOL isiPhoneOS2;
 // Private stuff
 @interface ASIHTTPRequest ()
 
-- (void)checkRequestStatus;
+//- (void)checkRequestStatus;
 - (void)cancelLoad;
 
 - (void)destroyReadStream;
@@ -1055,15 +1055,15 @@ static BOOL isiPhoneOS2;
 	[self setLastActivityTime:[NSDate date]];	
 	
 
-	[self setStatusTimer:[NSTimer timerWithTimeInterval:0.25 target:self selector:@selector(updateStatus:) userInfo:nil repeats:YES]];
-	[[NSRunLoop currentRunLoop] addTimer:[self statusTimer] forMode:[self runLoopMode]];
+	//[self setStatusTimer:[NSTimer timerWithTimeInterval:0.25 target:self selector:@selector(updateStatus:) userInfo:nil repeats:YES]];
+	//[[NSRunLoop currentRunLoop] addTimer:[self statusTimer] forMode:[self runLoopMode]];
 	
-	// If we're running asynchronously on the main thread, the runloop will already be running and we can return control
-	if (![NSThread isMainThread] || [self isSynchronous] || ![[self runLoopMode] isEqualToString:NSDefaultRunLoopMode]) {
-		while (!complete) {
-			[[NSRunLoop currentRunLoop] runMode:[self runLoopMode] beforeDate:[NSDate distantFuture]];
-		}
-	}
+//	// If we're running asynchronously on the main thread, the runloop will already be running and we can return control
+//	if (![NSThread isMainThread] || [self isSynchronous] || ![[self runLoopMode] isEqualToString:NSDefaultRunLoopMode]) {
+//		while (!complete) {
+//			[[NSRunLoop currentRunLoop] runMode:[self runLoopMode] beforeDate:[NSDate distantFuture]];
+//		}
+//	}
 }
 
 - (void)setStatusTimer:(NSTimer *)timer
@@ -1105,11 +1105,11 @@ static BOOL isiPhoneOS2;
 // This gets fired every 1/4 of a second to update the progress and work out if we need to timeout
 - (void)updateStatus:(NSTimer*)timer
 {	
-	[self checkRequestStatus];
-	if (![self inProgress]) {
-		[self setStatusTimer:nil];
-		CFRunLoopStop(CFRunLoopGetCurrent());
-	}
+//	[self checkRequestStatus];
+//	if (![self inProgress]) {
+//		[self setStatusTimer:nil];
+//		CFRunLoopStop(CFRunLoopGetCurrent());
+//	}
 }
 
 - (BOOL)shouldTimeOut
@@ -1132,7 +1132,7 @@ static BOOL isiPhoneOS2;
 	return NO;
 }
 
-- (void)checkRequestStatus
+- (void)updateStatus
 {
 	// We won't let the request cancel while we're updating progress / checking for a timeout
 	[[self cancelledLock] lock];
@@ -1512,7 +1512,7 @@ static BOOL isiPhoneOS2;
 	
 	// Let the queue know we are done
 	if ([[self queue] respondsToSelector:@selector(requestFinished:)]) {
-		[[self queue] performSelectorOnMainThread:@selector(requestFinished:) withObject:self waitUntilDone:[NSThread isMainThread]];		
+		[[self queue] requestFinished:self];
 	}
 	
 }
@@ -2385,20 +2385,23 @@ static BOOL isiPhoneOS2;
             break;
     }
 	
-	[self performThrottling];
-	
+	if (![self complete]) {
+		[self performThrottling];
+	}
 	[[self cancelledLock] unlock];
 	
-	if ([self downloadComplete] && [self needsRedirect]) {
-		CFRunLoopStop(CFRunLoopGetCurrent());
-		[self performRedirect];
-		return;
-	} else if ([self downloadComplete] && [self authenticationNeeded]) {
-		CFRunLoopStop(CFRunLoopGetCurrent());
-		[self attemptToApplyCredentialsAndResume];
-		return;
-	} else if (![self inProgress]) {
-		[self setStatusTimer:nil];
+	if ([self downloadComplete]) {
+		if ([self needsRedirect]) {
+			CFRunLoopStop(CFRunLoopGetCurrent());
+			[self performRedirect];
+			return;
+		} else if ([self authenticationNeeded]) {
+			CFRunLoopStop(CFRunLoopGetCurrent());
+			[self attemptToApplyCredentialsAndResume];
+			return;
+		}
+	} else {
+		[self requestFinished];
 	}
 	
 }
@@ -2591,11 +2594,8 @@ static BOOL isiPhoneOS2;
 		
 		if (fileError) {
 			[self failWithError:fileError];
-		} else {
-			[self requestFinished];
 		}
 
-		[self markAsFinished];
 	}
 }
 
@@ -2662,7 +2662,7 @@ static BOOL isiPhoneOS2;
 		
 		[self failWithError:[NSError errorWithDomain:NetworkRequestErrorDomain code:ASIConnectionFailureErrorType userInfo:[NSDictionary dictionaryWithObjectsAndKeys:reason,NSLocalizedDescriptionKey,underlyingError,NSUnderlyingErrorKey,nil]]];
 	}
-	[self checkRequestStatus];
+	[self updateStatus];
 }
 
 #pragma mark managing the read stream

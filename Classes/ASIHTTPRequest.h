@@ -68,7 +68,7 @@ extern unsigned long const ASIWWANBandwidthThrottleAmount;
 	
 	// Another delegate that is also notified of request status changes and progress updates
 	// Generally, you won't use this directly, but ASINetworkQueue sets itself as the queue so it can proxy updates to its own delegates
-	id <ASIHTTPRequestDelegate, ASIProgressDelegate> queue;
+	id queue;
 	
 	// HTTP method to use (GET / POST / PUT / DELETE / HEAD). Defaults to GET
 	NSString *requestMethod;
@@ -538,6 +538,9 @@ extern unsigned long const ASIWWANBandwidthThrottleAmount;
 // Construct a basic authentication header from the username and password supplied, and add it to the request headers
 // Used when shouldPresentCredentialsBeforeChallenge is YES
 - (void)addBasicAuthenticationHeaderWithUsername:(NSString *)theUsername andPassword:(NSString *)thePassword;
+
+
+- (void)updateStatus;
 
 #pragma mark stream status handlers
 
