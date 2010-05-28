@@ -44,7 +44,6 @@ static NSLock *modifyQueueLock = nil;
 @property (retain, nonatomic) NSMutableArray *queuedHEADRequests;
 @property (retain, nonatomic) NSMutableArray *runningRequests;
 @property (retain, nonatomic) NSRecursiveLock *requestLock;
-@property (retain, nonatomic) NSTimer *requestStatusTimer;
 @property (assign, nonatomic) BOOL haveCalledQueueFinishSelector;
 @end
 
@@ -68,9 +67,9 @@ static NSLock *modifyQueueLock = nil;
 {
 	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
 	while (1) {
-		CFRunLoopRun();
 		[queueStateLock lockWhenCondition:RequestsQueuedASINetworkQueueState];
 		[queueStateLock unlock];
+		CFRunLoopRun();
 	}
 	[pool release];
 }
@@ -302,6 +301,9 @@ static NSLock *modifyQueueLock = nil;
 - (void)startRequest:(ASIHTTPRequest *)requestToRun
 {
 	[modifyQueueLock lock];
+	if (![queues containsObject:self]) {
+		[queues addObject:self];
+	}
 	if (![self isSuspended]) {
 		[[self runningRequests] addObject:requestToRun];
 		if ([requestToRun mainRequest]) {
@@ -357,9 +359,8 @@ static NSLock *modifyQueueLock = nil;
 	[modifyQueueLock lock];
 	[queues removeObject:self];
 	if (![queues count]) {
+		[[self class] stopStatusTimer];
 		CFRunLoopStop(CFRunLoopGetCurrent());
-		[[self requestStatusTimer] invalidate];
-		[self setRequestStatusTimer:nil];
 		[queueStateLock lock];
 		[queueStateLock unlockWithCondition:QueueEmptyASINetworkQueueState];
 	}
@@ -510,7 +511,6 @@ static NSLock *modifyQueueLock = nil;
 @synthesize queuedHEADRequests;
 @synthesize runningRequests;
 @synthesize requestLock;
-@synthesize requestStatusTimer;
 @synthesize suspended;
 @synthesize bytesUploadedSoFar;
 @synthesize totalBytesToUpload;

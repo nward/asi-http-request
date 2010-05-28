@@ -322,6 +322,7 @@
 	[tableView reloadData];
 
 	[self setTableQueue:[ASINetworkQueue queue]];
+	[[ASIDownloadCache sharedCache] setDefaultCachePolicy:ASIOnlyLoadIfNotCachedCachePolicy];
 	
 	ASIHTTPRequest *request = [ASIHTTPRequest requestWithURL:[NSURL URLWithString:@"http://allseeing-i.com/ASIHTTPRequest/tests/table-row-data.xml"]];
 	[request setDownloadCache:[ASIDownloadCache sharedCache]];

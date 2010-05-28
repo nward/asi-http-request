@@ -27,9 +27,6 @@
 	NSRecursiveLock *requestLock;
 	
 	BOOL haveCalledQueueFinishSelector;
-
-	// This timer is responsible for updating the progress of running requests
-	NSTimer *requestStatusTimer;
 	
 	// Delegate will get didFail + didFinish messages (if set)
 	id delegate;
