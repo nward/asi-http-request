@@ -71,7 +71,7 @@ IMPORTANT
 	
 	[networkQueue waitUntilAllRequestsAreFinished];
 	
-	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
+	[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
 
 	GHAssertTrue(started,@"Failed to call the delegate method when the request started");
 	GHAssertTrue(receivedResponseHeaders,@"Failed to call the delegate method when the request received response headers");
@@ -88,7 +88,7 @@ IMPORTANT
 	
 	[networkQueue waitUntilAllRequestsAreFinished];
 
-	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
+	[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
 	
 	GHAssertTrue(failed,@"Failed to call the delegate method when the request failed");
 	
@@ -136,10 +136,9 @@ IMPORTANT
 	[networkQueue go];
 		
 	while (!complete) {
-		[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
+		[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
 	}
 	
-	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1]];
 	BOOL success = (progress == 1.0);
 	GHAssertTrue(success,@"Failed to increment progress properly");
 	
@@ -158,7 +157,7 @@ IMPORTANT
 	[networkQueue go];
 	
 	while (!complete) {
-		[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
+		[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
 	}
 	
 	success = (progress == 1.0);
@@ -189,9 +188,11 @@ IMPORTANT
 	
 	[networkQueue waitUntilAllRequestsAreFinished];
 	
+	[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
+
 	BOOL success = (progress == 1.0);
 	GHAssertTrue(success,@"Failed to increment progress properly");
-	
+
 	[networkQueue reset];
 	[networkQueue setDownloadProgressDelegate:self];
 	[networkQueue setDelegate:self];
@@ -211,6 +212,8 @@ IMPORTANT
 	
 	[networkQueue waitUntilAllRequestsAreFinished];
 	
+	[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
+
 	success = (progress == 1.0);
 	GHAssertTrue(success,@"Failed to increment progress properly");
 }
@@ -244,7 +247,7 @@ IMPORTANT
 	for (i=0; i<5; i++) {
 		[self performSelector:@selector(addAnotherRequest) withObject:nil afterDelay:i];
 	}
-	
+
 	while (addedRequests < 5) {
 		[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1]];
 	}
@@ -318,9 +321,10 @@ IMPORTANT
 	[networkQueue go];
 	
 	while (!complete) {
-		[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
+		[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
 	}
-	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1]];
+	[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
+
 	BOOL success = (progress == 1.0f);
 	GHAssertTrue(success,@"Failed to increment progress properly");
 	
@@ -343,13 +347,14 @@ IMPORTANT
 		[request setFile:path forKey:@"file"];
 		[networkQueue addRequest:request];	
 	}
-	
+
 	[networkQueue go];
 	
 	while (!complete) {
-		[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
+		[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
 	}
-	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:1]];
+
+	[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
 	success = (progress == 1.0f);
 	GHAssertTrue(success,@"Failed to increment progress properly");
 	
@@ -662,12 +667,12 @@ IMPORTANT
 	complete = NO;
 	progress = 0;
 	
-	NSString *temporaryPath = [[self filePathForTemporaryTestFiles] stringByAppendingPathComponent:@"the_great_american_novel_%28young_readers_edition%29.txt.download"];
+	NSString *temporaryPath = [[self filePathForTemporaryTestFiles] stringByAppendingPathComponent:@"the_great_american_novel_(young_readers_edition).txt.download"];
 	if ([[NSFileManager defaultManager] fileExistsAtPath:temporaryPath]) {
 		[[NSFileManager defaultManager] removeItemAtPath:temporaryPath error:nil];
 	}
 	
-	NSString *downloadPath = [[self filePathForTemporaryTestFiles] stringByAppendingPathComponent:@"the_great_american_novel_%28young_readers_edition%29.txt"];
+	NSString *downloadPath = [[self filePathForTemporaryTestFiles] stringByAppendingPathComponent:@"the_great_american_novel_(young_readers_edition).txt"];
 	if ([[NSFileManager defaultManager] fileExistsAtPath:downloadPath]) {
 		[[NSFileManager defaultManager] removeItemAtPath:downloadPath error:nil];
 	}
@@ -1097,7 +1102,7 @@ IMPORTANT
 	[queue waitUntilAllRequestsAreFinished];
 	
 	// Hope the request gets around to notifying the delegate in time
-	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
+	[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
 	
 	GHAssertTrue(headFailed,@"Failed to notify the request's delegate");
 }

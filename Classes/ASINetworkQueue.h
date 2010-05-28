@@ -16,6 +16,9 @@
 	
 	// Requests that are queued but not yet started
 	NSMutableArray *queuedRequests;
+
+	// HEAD requests created by the queue
+	NSMutableArray *queuedHEADRequests;
 	
 	// Requests that are in progress
 	NSMutableArray *runningRequests;
@@ -23,6 +26,8 @@
 	// Mediates access to the request arrays
 	NSRecursiveLock *requestLock;
 	
+	BOOL haveCalledQueueFinishSelector;
+
 	// This timer is responsible for updating the progress of running requests
 	NSTimer *requestStatusTimer;
 	

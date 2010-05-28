@@ -600,15 +600,13 @@
 	[request setDownloadProgressDelegate:self];
 	[request startAsynchronous];
 	
-	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:2]];
-	
+	[[NSRunLoop mainRunLoop] performSelectorOnMainThread:@selector(runUntilDate:) withObject:[NSDate dateWithTimeIntervalSinceNow:2.0f] waitUntilDone:YES];
+
 	success = (progress != 1.0);
 	GHAssertTrue(success,@"Downloaded too quickly, cannot proceed with test");	
 	 
 	success = (progress > 0);
-	GHAssertTrue(success,@"Either downloaded too slowly, or progress is not being correctly updated");		 
-	
-	
+	GHAssertTrue(success,@"Either downloaded too slowly, or progress is not being correctly updated");
 }
 
 - (void)testUploadProgress

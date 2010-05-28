@@ -16,10 +16,21 @@ enum _ASINetworkQueueState {
     RequestsInProgressASINetworkQueueState = 2
 };
 
+// The thread all requests will run on
+// Hangs around forever, but will be blocked unless there are requests underway
 static NSThread *networkThread = nil;
+
+// This lock is used to block the request thread to wait for more requests, and when waitUntilAllRequestsAreFinished is called
 static NSConditionLock *queueStateLock;
+
+// Updates the status of all running requests every 1/4 second
 static NSTimer *statusTimer = nil;
-static NSMutableArray *allRunningRequests = nil;
+
+// We store a reference to each queue when it is started, and remove it when it finishes
+// This makes using auto-released queues possible
+static NSMutableArray *queues = nil;
+
+// Mediates accesss
 static NSLock *modifyQueueLock = nil;
 
 @interface ASINetworkQueue ()
@@ -27,11 +38,14 @@ static NSLock *modifyQueueLock = nil;
 - (void)startRequest:(ASIHTTPRequest *)requestToRun;
 - (void)resetProgressDelegate:(id)progressDelegate;
 - (BOOL)startMoreRequests;
+- (void)queueFinished;
 
 @property (retain, nonatomic) NSMutableArray *queuedRequests;
+@property (retain, nonatomic) NSMutableArray *queuedHEADRequests;
 @property (retain, nonatomic) NSMutableArray *runningRequests;
 @property (retain, nonatomic) NSRecursiveLock *requestLock;
 @property (retain, nonatomic) NSTimer *requestStatusTimer;
+@property (assign, nonatomic) BOOL haveCalledQueueFinishSelector;
 @end
 
 @implementation ASINetworkQueue
@@ -42,11 +56,14 @@ static NSLock *modifyQueueLock = nil;
 		networkThread = [[NSThread alloc] initWithTarget:self selector:@selector(runRequests) object:nil];
 		queueStateLock = [[NSConditionLock alloc] init];
 		modifyQueueLock = [[NSRecursiveLock alloc] init];
-		allRunningRequests = [[NSMutableArray array] retain];
+		queues = [[NSMutableArray array] retain];
 		[networkThread start];
 	}
 }
 
+// This is the main loop for the thread the requests run in
+// Basically, it runs the runloop while there are requests in progress
+// then blocks to wait for more requests to be added to the queue
 + (void)runRequests
 {
 	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
@@ -58,13 +75,15 @@ static NSLock *modifyQueueLock = nil;
 	[pool release];
 }
 
+// Called to start off the timer that monitors the status of the running requests
 + (void)startStatusTimer
 {
 	if (!statusTimer) {
 		statusTimer = [[NSTimer scheduledTimerWithTimeInterval:0.25 target:self selector:@selector(updateRequestStatus:) userInfo:nil repeats:YES] retain];
 	}
 }
-				   
+
+// Called to stop the timer that monitors the status of the running requests when there are no more requests to monitor
 + (void)stopStatusTimer
 {
 	[statusTimer invalidate];
@@ -72,24 +91,26 @@ static NSLock *modifyQueueLock = nil;
 	statusTimer = nil;
 }
 
+// Called every 0.25 seconds when there are requests running
+// The call to a request's updateStatus method will ensure requests update progress, and timeout if nescessary
 + (void)updateRequestStatus:(NSTimer *)timer
 {
 	[modifyQueueLock lock];
-	NSUInteger i;
-	// updateStatus may remove the request from this list
-	for (i=0; i<[allRunningRequests count]; i++) {
-		[[allRunningRequests objectAtIndex:i] updateStatus];
+	for (ASINetworkQueue *queue in queues) {
+		NSUInteger i;
+		// updateStatus may remove the request from this list
+		for (i=0; i<[[queue runningRequests] count]; i++) {
+			[[[queue runningRequests] objectAtIndex:i] updateStatus];
+		}
 	}
 	[modifyQueueLock unlock];
 }
 
+// Called on the request thread to run a request
 + (void)performRequest:(ASIHTTPRequest *)requestToRun
 {
 	[queueStateLock lock];
 	[queueStateLock unlockWithCondition:RequestsInProgressASINetworkQueueState];
-	[modifyQueueLock lock];
-	[allRunningRequests addObject:requestToRun];
-	[modifyQueueLock unlock];
 	[self startStatusTimer];
 	[requestToRun main];
 }
@@ -99,6 +120,7 @@ static NSLock *modifyQueueLock = nil;
 {
 	self = [super init];
 	[self setQueuedRequests:[NSMutableArray array]];
+	[self setQueuedHEADRequests:[NSMutableArray array]];
 	[self setRunningRequests:[NSMutableArray array]];
 	[self setSuspended:YES];
 	[self setShouldCancelAllRequestsOnFailure:YES];
@@ -114,6 +136,7 @@ static NSLock *modifyQueueLock = nil;
 - (void)dealloc
 {
 	[queuedRequests release];
+	[queuedHEADRequests release];
 	[runningRequests release];
 	[super dealloc];
 }
@@ -129,7 +152,6 @@ static NSLock *modifyQueueLock = nil;
 	[self setRequestDidFailSelector:NULL];
 	[self setRequestDidFinishSelector:NULL];
 	[self setQueueDidFinishSelector:NULL];
-	
 	[self setSuspended:YES];
 }
 
@@ -137,6 +159,8 @@ static NSLock *modifyQueueLock = nil;
 - (void)addRequest:(ASIHTTPRequest *)request
 {
 	[modifyQueueLock lock];
+	[self setHaveCalledQueueFinishSelector:NO];
+	
 	if ([self showAccurateProgress]) {
 		
 		// Force the request to build its body (this may change requestMethod)
@@ -151,7 +175,7 @@ static NSLock *modifyQueueLock = nil;
 				ASIHTTPRequest *HEADRequest = [request HEADRequest];
 				[HEADRequest setShowAccurateProgress:YES];
 				[HEADRequest setQueue:self];
-				[[self queuedRequests] addObject:HEADRequest];
+				[[self queuedHEADRequests] addObject:HEADRequest];
 				
 				if ([request shouldResetDownloadProgress]) {
 					[self resetProgressDelegate:[request downloadProgressDelegate]];
@@ -188,20 +212,28 @@ static NSLock *modifyQueueLock = nil;
 	if ([self requestDidFailSelector] && ![request mainRequest]) {
 		[[self delegate] performSelectorOnMainThread:[self requestDidFailSelector] withObject:request waitUntilDone:NO];
 	}
-	[[self queuedRequests] removeObject:request];
+	if ([request mainRequest]) {
+		[[self queuedHEADRequests] removeObject:request];
+	} else {
+		[[self queuedRequests] removeObject:request];
+	}
 	[[self runningRequests] removeObject:request];
-	[allRunningRequests removeObject:request];
+
 	if ([self shouldCancelAllRequestsOnFailure] && ([[self queuedRequests] count] || [[self runningRequests] count])) {
 		[self cancelAllRequests];
+	} else {
+		[self startMoreRequests];
 	}
 	if (![[self queuedRequests] count] && ![[self runningRequests] count]) {
 		
-		if ([self queueDidFinishSelector]) {
+		if ([self queueDidFinishSelector] && ![self haveCalledQueueFinishSelector]) {
+			[self setHaveCalledQueueFinishSelector:YES];
 			[[self delegate] performSelectorOnMainThread:[self queueDidFinishSelector] withObject:self waitUntilDone:NO];
 		}
 		
-		[self cancelAllRequests];
-		CFRunLoopStop(CFRunLoopGetCurrent());
+		if ([queueStateLock condition] != QueueEmptyASINetworkQueueState) {
+			[self queueFinished];
+		}
 	}
 	
 	[modifyQueueLock unlock];	
@@ -215,20 +247,21 @@ static NSLock *modifyQueueLock = nil;
 		[[self delegate] performSelectorOnMainThread:[self requestDidFinishSelector] withObject:request waitUntilDone:NO];
 	}
 	
-	[self startMoreRequests];
 	[[self runningRequests] removeObject:request];
-	[allRunningRequests removeObject:request];
+	[self startMoreRequests];
+
 	
 	
 	if (![[self queuedRequests] count] && ![[self runningRequests] count]) {
 		
-		if ([self queueDidFinishSelector]) {
+		if ([self queueDidFinishSelector] && ![self haveCalledQueueFinishSelector]) {
+			[self setHaveCalledQueueFinishSelector:YES];
 			[[self delegate] performSelectorOnMainThread:[self queueDidFinishSelector] withObject:self waitUntilDone:NO];
 		}
 		
-		[self cancelAllRequests];
-		CFRunLoopStop(CFRunLoopGetCurrent());
-
+		if ([queueStateLock condition] != QueueEmptyASINetworkQueueState) {
+			[self queueFinished];
+		}
 	}
 	
 	[modifyQueueLock unlock];
@@ -240,6 +273,12 @@ static NSLock *modifyQueueLock = nil;
 		return NO;
 	}
 	BOOL haveStartedRequests = NO;
+
+	while ([[self queuedHEADRequests] count] && [[self runningRequests] count] < [self maxConcurrentRequestCount]) {
+		[self startRequest:[[self queuedHEADRequests] objectAtIndex:0]];
+		haveStartedRequests = YES;
+	}
+
 	NSUInteger i = 0;
 	while (i < [[self queuedRequests] count] && [[self runningRequests] count] < [self maxConcurrentRequestCount]) {
 		ASIHTTPRequest *requestToStart = [[self queuedRequests] objectAtIndex:i];
@@ -253,8 +292,9 @@ static NSLock *modifyQueueLock = nil;
 		if (!HEADRequestInProgress) {
 			[self startRequest:requestToStart];
 			haveStartedRequests = YES;
+		} else {
+			i++;
 		}
-		i++;
 	}
 	return haveStartedRequests;
 }
@@ -264,7 +304,11 @@ static NSLock *modifyQueueLock = nil;
 	[modifyQueueLock lock];
 	if (![self isSuspended]) {
 		[[self runningRequests] addObject:requestToRun];
-		[[self queuedRequests] removeObject:requestToRun];
+		if ([requestToRun mainRequest]) {
+			[[self queuedHEADRequests] removeObject:requestToRun];
+		} else {
+			[[self queuedRequests] removeObject:requestToRun];
+		}
 		[queueStateLock lock];
 		[queueStateLock unlockWithCondition:RequestsQueuedASINetworkQueueState];
 		[[self class] performSelector:@selector(performRequest:) onThread:networkThread withObject:requestToRun waitUntilDone:NO];
@@ -274,20 +318,27 @@ static NSLock *modifyQueueLock = nil;
 
 - (void)go
 {
-	[self setSuspended:NO];
-	if ([self startMoreRequests]) {
-		[queueStateLock lockWhenCondition:1];
-		[queueStateLock unlock];	
+	[modifyQueueLock lock];
+	if (![queues containsObject:self]) {
+		[queues addObject:self];
 	}
+	[modifyQueueLock unlock];
+	[self setSuspended:NO];
+	[self startMoreRequests];
 }
 
 - (void)cancelAllRequests
 {
 	[modifyQueueLock lock];
-	for (ASIHTTPRequest *request in [[[self queuedRequests] copy] autorelease]) {
+
+	NSArray *queuedRequestsToCancel = [[[self queuedRequests] copy] autorelease];
+	NSArray *runningRequestsToCancel = [[[self runningRequests] copy] autorelease];
+	[self setQueuedRequests:[NSMutableArray array]];
+	[self setRunningRequests:[NSMutableArray array]];
+	for (ASIHTTPRequest *request in queuedRequestsToCancel) {
 		[request cancel];
 	}
-	for (ASIHTTPRequest *request in [[[self runningRequests] copy] autorelease]) {
+	for (ASIHTTPRequest *request in runningRequestsToCancel) {
 		[request cancel];
 	}
 	[self setBytesUploadedSoFar:0];
@@ -295,13 +346,24 @@ static NSLock *modifyQueueLock = nil;
 	[self setBytesDownloadedSoFar:0];
 	[self setTotalBytesToDownload:0];
 	
-	[[self requestStatusTimer] invalidate];
-	[self setRequestStatusTimer:nil];
-	
-	[queueStateLock lock];
-	[queueStateLock unlockWithCondition:QueueEmptyASINetworkQueueState];	
+	if ([queueStateLock condition] != QueueEmptyASINetworkQueueState) {
+		[self queueFinished];
+	}
+	[modifyQueueLock unlock];
+}
 
-	[modifyQueueLock unlock];	
+- (void)queueFinished
+{
+	[modifyQueueLock lock];
+	[queues removeObject:self];
+	if (![queues count]) {
+		CFRunLoopStop(CFRunLoopGetCurrent());
+		[[self requestStatusTimer] invalidate];
+		[self setRequestStatusTimer:nil];
+		[queueStateLock lock];
+		[queueStateLock unlockWithCondition:QueueEmptyASINetworkQueueState];
+	}
+	[modifyQueueLock unlock];
 }
 
 - (void)request:(ASIHTTPRequest *)request didReceiveBytes:(long long)bytes
@@ -368,14 +430,14 @@ static NSLock *modifyQueueLock = nil;
 - (void)requestStarted:(ASIHTTPRequest *)request
 {
 	if ([self requestDidStartSelector]) {
-		[[self delegate] performSelector:[self requestDidStartSelector] withObject:request];
+		[[self delegate] performSelectorOnMainThread:[self requestDidStartSelector] withObject:request waitUntilDone:NO];
 	}
 }
 
 - (void)requestReceivedResponseHeaders:(ASIHTTPRequest *)request
 {
 	if ([self requestDidReceiveResponseHeadersSelector]) {
-		[[self delegate] performSelector:[self requestDidReceiveResponseHeadersSelector] withObject:request];
+		[[self delegate] performSelectorOnMainThread:[self requestDidReceiveResponseHeadersSelector] withObject:request waitUntilDone:NO];
 	}	
 }
 
@@ -383,7 +445,6 @@ static NSLock *modifyQueueLock = nil;
 {
 	[queueStateLock lockWhenCondition:QueueEmptyASINetworkQueueState];
 	[queueStateLock unlock];	
-	NSLog(@"foo");
 }
 
 - (NSUInteger)requestsCount
@@ -446,6 +507,7 @@ static NSLock *modifyQueueLock = nil;
 }
 
 @synthesize queuedRequests;
+@synthesize queuedHEADRequests;
 @synthesize runningRequests;
 @synthesize requestLock;
 @synthesize requestStatusTimer;
@@ -466,4 +528,5 @@ static NSLock *modifyQueueLock = nil;
 @synthesize showAccurateProgress;
 @synthesize userInfo;
 @synthesize maxConcurrentRequestCount;
+@synthesize haveCalledQueueFinishSelector;
 @end

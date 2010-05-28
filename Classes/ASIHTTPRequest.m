@@ -23,7 +23,7 @@
 #import "ASINetworkQueue.h"
 
 // Automatically set on build
-NSString *ASIHTTPRequestVersion = @"v1.6.2-30 2010-05-27";
+NSString *ASIHTTPRequestVersion = @"v1.6.2-31 2010-05-28";
 
 NSString* const NetworkRequestErrorDomain = @"ASIHTTPRequestErrorDomain";
 
@@ -541,6 +541,7 @@ static unsigned int runningRequestCount = 0;
 		sharedQueue = [[ASINetworkQueue queue] retain];
 		[sharedQueue go];
 		[sharedQueue setShowAccurateProgress:YES];
+		[sharedQueue setShouldCancelAllRequestsOnFailure:NO];
 	}
 	if (![self isCancelled] && ![self complete]) {
 		[sharedQueue addRequest:self];
@@ -1441,7 +1442,7 @@ static unsigned int runningRequestCount = 0;
 	
 	// Let the queue know we have started
 	if ([[self queue] respondsToSelector:@selector(requestReceivedResponseHeaders:)]) {
-		[[self queue] performSelectorOnMainThread:@selector(requestReceivedResponseHeaders:) withObject:self waitUntilDone:[NSThread isMainThread]];		
+		[[self queue] requestReceivedResponseHeaders:self];
 	}
 }
 
@@ -1457,7 +1458,7 @@ static unsigned int runningRequestCount = 0;
 	
 	// Let the queue know we have started
 	if ([[self queue] respondsToSelector:@selector(requestStarted:)]) {
-		[[self queue] performSelectorOnMainThread:@selector(requestStarted:) withObject:self waitUntilDone:[NSThread isMainThread]];		
+		[[self queue] requestStarted:self];
 	}
 }
 
@@ -2350,6 +2351,8 @@ static unsigned int runningRequestCount = 0;
 		[[self cancelledLock] unlock];
 		return;
 	}
+
+	[self retain];
 	
     // Dispatch the stream events.
     switch (type) {
@@ -2377,15 +2380,18 @@ static unsigned int runningRequestCount = 0;
 	if ([self downloadComplete]) {
 		if ([self needsRedirect]) {
 			[self performRedirect];
+			[self release];
 			return;
 		} else if ([self authenticationNeeded]) {
 			[self attemptToApplyCredentialsAndResume];
+			[self release];
 			return;
 		}
 		
 		[self requestFinished];
 	}
 	
+	[self release];
 }
 
 
