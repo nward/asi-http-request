@@ -121,13 +121,6 @@
 	[self performSelectorOnMainThread:@selector(startASIHTTPRequestsWithQueue) withObject:nil waitUntilDone:NO];
 }
 
-
-- (void)testNGQueueASIHTTPRequestAsyncPerformance
-{
-	[self performSelectorOnMainThread:@selector(startASIHTTPRequestsWithNGQueue) withObject:nil waitUntilDone:NO];
-}
-
-
 - (void)startASIHTTPRequests
 {
 	bytesDownloaded = 0;
@@ -145,7 +138,7 @@
 	}
 }
 
-- (void)startASIHTTPRequestsWithNGQueue
+- (void)startASIHTTPRequestsWithQueue
 {
 	bytesDownloaded = 0;
 	[self setRequestsComplete:0];

@@ -34,6 +34,8 @@ static NSMutableArray *queues = nil;
 static NSLock *modifyQueueLock = nil;
 
 @interface ASINetworkQueue ()
++ (void)startStatusTimer;
++ (void)stopStatusTimer;
 
 - (void)startRequest:(ASIHTTPRequest *)requestToRun;
 - (void)resetProgressDelegate:(id)progressDelegate;
@@ -110,7 +112,7 @@ static NSLock *modifyQueueLock = nil;
 {
 	[queueStateLock lock];
 	[queueStateLock unlockWithCondition:RequestsInProgressASINetworkQueueState];
-	[self startStatusTimer];
+	[ASINetworkQueue startStatusTimer];
 	[requestToRun main];
 }
 
@@ -359,7 +361,7 @@ static NSLock *modifyQueueLock = nil;
 	[modifyQueueLock lock];
 	[queues removeObject:self];
 	if (![queues count]) {
-		[[self class] stopStatusTimer];
+		[ASINetworkQueue stopStatusTimer];
 		CFRunLoopStop(CFRunLoopGetCurrent());
 		[queueStateLock lock];
 		[queueStateLock unlockWithCondition:QueueEmptyASINetworkQueueState];
