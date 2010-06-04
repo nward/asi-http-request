@@ -56,7 +56,7 @@ extern NSString* const NetworkRequestErrorDomain;
 // This number is not official, as far as I know there is no officially documented bandwidth limit
 extern unsigned long const ASIWWANBandwidthThrottleAmount;
 
-@interface ASIHTTPRequest : NSOperation <NSCopying> {
+@interface ASIHTTPRequest : NSObject <NSCopying> {
 	
 	// The url for this operation, should include GET params in the query string where appropriate
 	NSURL *url; 
@@ -141,8 +141,11 @@ extern unsigned long const ASIWWANBandwidthThrottleAmount;
 	// Used for writing data to a file when downloadDestinationPath is set
 	NSOutputStream *fileDownloadOutputStream;
 	
-	// When the request fails or completes successfully, complete will be true
-	BOOL complete;
+	// When the request fails, is cancelled, or completes successfully, isComplete will be YES
+	BOOL isComplete;
+	
+	// When the request is cancelled, isCancelled will be YES
+	BOOL isCancelled;
 	
 	// If an error occurs, error will contain an NSError
 	// If error code is = ASIConnectionFailureErrorType (1, Connection failure occurred) - inspect [[error userInfo] objectForKey:NSUnderlyingErrorKey] for more information
@@ -334,9 +337,6 @@ extern unsigned long const ASIWWANBandwidthThrottleAmount;
 	// Default is YES
 	BOOL shouldPresentCredentialsBeforeChallenge;
 	
-	// YES when the request is run with runSynchronous, NO otherwise. READ-ONLY
-	BOOL isSynchronous;
-	
 	// YES when the request hasn't finished yet. Will still be YES even if the request isn't doing anything (eg it's waiting for delegate authentication). READ-ONLY
 	BOOL inProgress;
 	
@@ -448,6 +448,9 @@ extern unsigned long const ASIWWANBandwidthThrottleAmount;
 
 // Returns true if the response was gzip compressed
 - (BOOL)isResponseCompressed;
+
+- (void)cancel;
+- (void)main;
 
 #pragma mark running a request
 
@@ -739,7 +742,8 @@ extern unsigned long const ASIWWANBandwidthThrottleAmount;
 @property (retain,readonly) NSString *authenticationRealm;
 @property (retain,readonly) NSString *proxyAuthenticationRealm;
 @property (retain) NSError *error;
-@property (assign,readonly) BOOL complete;
+@property (assign,readonly) BOOL isComplete;
+@property (assign,readonly) BOOL isCancelled;
 @property (retain) NSDictionary *responseHeaders;
 @property (retain) NSMutableDictionary *requestHeaders;
 @property (retain) NSMutableArray *requestCookies;
@@ -785,7 +789,6 @@ extern unsigned long const ASIWWANBandwidthThrottleAmount;
 @property (assign, readonly) int proxyAuthenticationRetryCount;
 @property (assign) BOOL haveBuiltRequestHeaders;
 @property (assign, nonatomic) BOOL haveBuiltPostBody;
-@property (assign, readonly) BOOL isSynchronous;
 @property (assign, readonly) BOOL inProgress;
 @property (assign) int numberOfTimesToRetryOnTimeout;
 @property (assign, readonly) int retryCount;

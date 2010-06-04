@@ -136,9 +136,11 @@ static NSLock *modifyQueueLock = nil;
 
 - (void)dealloc
 {
+	[userInfo release];
 	[queuedRequests release];
 	[queuedHEADRequests release];
 	[runningRequests release];
+	[requestLock release];
 	[super dealloc];
 }
 
