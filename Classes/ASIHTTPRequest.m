@@ -2718,7 +2718,7 @@ static NSOperationQueue *sharedQueue = nil;
 		return NO;
 	}
 	
-	if ([self cachePolicy] == ASIReloadIfDifferentCachePolicy) {
+	if ([self cachePolicy] == ASIReloadIfDifferentCachePolicy || [self cachePolicy] == ASIOnlyLoadIfNotCachedCachePolicy) {
 		if (![[self downloadCache] isCachedDataCurrentForRequest:self]) {
 			[[self downloadCache] removeCachedDataForRequest:self];
 			return NO;

@@ -262,7 +262,7 @@ static NSString *permanentCacheFolder = @"PermanentStore";
 	}
 	
 	// If we already have response headers for this request, check to see if the new content is different
-	if ([request responseHeaders] && [request responseStatusCode] != 304) {
+	if ([request cachePolicy] == ASIReloadIfDifferentCachePolicy && [request responseHeaders] && [request responseStatusCode] != 304) {
 		// If the Etag or Last-Modified date are different from the one we have, fetch the document again
 		NSArray *headersToCompare = [NSArray arrayWithObjects:@"Etag",@"Last-Modified",nil];
 		for (NSString *header in headersToCompare) {
